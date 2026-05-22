@@ -7,6 +7,7 @@ import {
   STATIC_FWWB_BUDGETS,
   STATIC_FWWB_SEED_BIDS,
 } from '../data/staticFwwbData';
+import { STATIC_FEED_UPDATES } from '../data/staticFeedUpdates';
 import {
   League,
   Team,
@@ -167,16 +168,7 @@ export function resetPlatform() {
   fwwbBudgets = {};
   matchups = {};
   draftSessions = {};
-  notifications = [
-    {
-      id: 'notif-1',
-      title: 'Welcome to Draft Fantasy!',
-      message: 'Static demo mode — all data runs in the browser. No server required.',
-      type: 'System',
-      timestamp: new Date().toISOString(),
-      read: false,
-    },
-  ];
+  notifications = clone(STATIC_FEED_UPDATES);
   seedDemoLeague();
   currentUser = null;
 }
@@ -188,7 +180,8 @@ export function getLeagues() {
 }
 
 export function getNotifications() {
-  return clone(notifications);
+  const list = notifications.length ? notifications : STATIC_FEED_UPDATES;
+  return clone(list);
 }
 
 export function markNotificationRead(id: string) {

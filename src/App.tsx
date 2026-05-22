@@ -24,6 +24,7 @@ import {
 } from './data/staticWaiverData';
 import { buildStaticH2HMatchups, formatMatchupKickoff } from './data/staticMatchups';
 import { FWWB_MIN_BID, STATIC_FWWB_BUDGETS, STATIC_FWWB_SEED_BIDS, buildStaticFwwbBid } from './data/staticFwwbData';
+import { STATIC_FEED_UPDATES } from './data/staticFeedUpdates';
 import * as staticStore from './services/staticStore';
 
 interface RealWorldFixture {
@@ -1690,7 +1691,8 @@ export default function App() {
     },
 
     async fetchNotifications() {
-      setNotifications(staticStore.getNotifications());
+      const data = staticStore.getNotifications();
+      setNotifications(data.length ? data : STATIC_FEED_UPDATES);
     },
 
     async fetchPlayers() {
