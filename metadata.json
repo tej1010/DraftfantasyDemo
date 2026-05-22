@@ -1,0 +1,6 @@
+{
+  "name": "Premier League Draft Fantasy",
+  "description": "A production-grade Premier League Draft Fantasy Football platform featuring snake draft, unique player ownership, reverse-order waivers, and head-to-head weekly matchups.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
