@@ -262,10 +262,18 @@ export function getFwwb(leagueId: string) {
 
 export function getMatchups(leagueId: string) {
   const league = leagues.find(l => l.id === leagueId);
-  let fixtures = matchups[leagueId] || [];
-  if (!fixtures.length && league && league.teams.length >= 4) {
-    fixtures = buildStaticH2HMatchups(leagueId, league.teams);
-    matchups[leagueId] = fixtures;
+  const teamRefs = league?.teams.map(t => ({ id: t.id, name: t.name, username: t.username }));
+  const shouldRebuild =
+    league &&
+    teamRefs &&
+    teamRefs.length >= 4 &&
+    (!matchups[leagueId]?.length || matchups[leagueId].length < 12);
+  if (shouldRebuild && teamRefs) {
+    matchups[leagueId] = buildStaticH2HMatchups(leagueId, teamRefs);
+  }
+  const fixtures = matchups[leagueId] || [];
+  if (!fixtures.length && teamRefs && teamRefs.length >= 4) {
+    return clone(buildStaticH2HMatchups(leagueId, teamRefs));
   }
   return clone(fixtures);
 }
@@ -622,6 +630,6 @@ export function simulateGameweek(leagueId: string) {
     m.teamBScore = Math.floor(Math.random() * 40) + 30;
     m.status = 'Completed';
   });
-  if (league.currentGameweek < 3) league.currentGameweek++;
+  if (league.currentGameweek < 6) league.currentGameweek++;
   return { success: true, nextGameweek: league.currentGameweek, logs: ['Gameweek simulated (static mode)'] };
 }

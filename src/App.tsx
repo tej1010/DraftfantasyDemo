@@ -22,9 +22,10 @@ import {
   STATIC_SEED_CLAIMS,
   buildStaticWaiverClaim,
 } from './data/staticWaiverData';
-import { buildStaticH2HMatchups, formatMatchupKickoff } from './data/staticMatchups';
+import { buildStaticH2HMatchups, formatMatchupKickoff, STATIC_H2H_GAMEWEEKS } from './data/staticMatchups';
 import { FWWB_MIN_BID, STATIC_FWWB_BUDGETS, STATIC_FWWB_SEED_BIDS, buildStaticFwwbBid } from './data/staticFwwbData';
 import { STATIC_FEED_UPDATES } from './data/staticFeedUpdates';
+import { INITIAL_MOCK_PLAYERS } from './mockPlayers';
 import * as staticStore from './services/staticStore';
 
 interface RealWorldFixture {
@@ -1220,9 +1221,9 @@ export default function App() {
   const [activeLeague, setActiveLeague] = useState<League | null>(null);
 
   // Core Module Sub-States
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [allPlayersPool, setAllPlayersPool] = useState<Player[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>(STATIC_FEED_UPDATES);
+  const [players, setPlayers] = useState<Player[]>(INITIAL_MOCK_PLAYERS);
+  const [allPlayersPool, setAllPlayersPool] = useState<Player[]>(INITIAL_MOCK_PLAYERS);
   const [searchQuery, setSearchQuery] = useState('');
   const [positionFilter, setPositionFilter] = useState<PlayerPosition | 'ALL'>('ALL');
   
@@ -1764,9 +1765,9 @@ export default function App() {
     setLeagues([]);
     setSelectedLeagueId('league-demo');
     setActiveLeague(null);
-    setNotifications([]);
-    setPlayers([]);
-    setAllPlayersPool([]);
+    setNotifications(STATIC_FEED_UPDATES);
+    setPlayers(INITIAL_MOCK_PLAYERS);
+    setAllPlayersPool(INITIAL_MOCK_PLAYERS);
     setSearchQuery('');
     setPositionFilter('ALL');
     setMyRoster(null);
@@ -1826,16 +1827,39 @@ export default function App() {
     ]);
   };
 
-  // Synchronize on parameters changed
+  const hydrateDashboardData = async () => {
+    await API.fetchLeagues();
+    await API.fetchNotifications();
+    await API.fetchPlayers();
+    if (selectedLeagueId) {
+      await API.fetchRoster();
+      await API.fetchMatchups();
+      await API.fetchWaivers();
+      await API.fetchFwwb();
+      await API.fetchDraftSession();
+    }
+  };
+
   useEffect(() => {
+    API.fetchNotifications();
+    API.fetchPlayers();
+    API.fetchLeagues();
     API.fetchSession().then((authenticated) => {
-      if (authenticated) {
-        API.fetchLeagues();
-        API.fetchNotifications();
-        API.fetchPlayers();
-      }
+      if (authenticated) hydrateDashboardData();
     });
   }, []);
+
+  useEffect(() => {
+    if (userProfile) {
+      hydrateDashboardData();
+    }
+  }, [userProfile]);
+
+  useEffect(() => {
+    if (userProfile) {
+      API.fetchPlayers();
+    }
+  }, [searchQuery, positionFilter, userProfile]);
 
   useEffect(() => {
     if (selectedLeagueId) {
@@ -2541,10 +2565,7 @@ export default function App() {
                           } else if (body.user) {
                             setUserProfile(body.user);
                             addToast('Welcome back, Gaffer_Tejpal!', 'success');
-                            await API.fetchSession();
-                            await API.fetchLeagues();
-                            await API.fetchRoster();
-                            await API.fetchMatchups();
+                            await hydrateDashboardData();
                           }
                           setIsLoadingAuth(false);
                         }}
@@ -2578,10 +2599,7 @@ export default function App() {
                     } else if (data.user) {
                       addToast('Identity validated! Welcome to draft fantasy.', 'success');
                       setUserProfile(data.user);
-                      await API.fetchSession();
-                      await API.fetchLeagues();
-                      await API.fetchRoster();
-                      await API.fetchMatchups();
+                      await hydrateDashboardData();
                       setAuthOtpSent(false);
                       setAuthOtp('');
                       setAuthPhone('');
@@ -6139,16 +6157,17 @@ export default function App() {
                   <p className="text-xs text-slate-400">Head-to-head points matchups are compiled each gameweek. Click "Simulate Match" to calculate player statistics.</p>
                 </div>
 
-                <div className="flex bg-[#030712] p-1 rounded border border-white/5 text-xs">
-                  {[1, 2, 3].map(gw => (
+                <div className="flex flex-wrap bg-[#030712] p-1 rounded border border-white/5 text-xs gap-0.5">
+                  {Array.from({ length: STATIC_H2H_GAMEWEEKS }, (_, i) => i + 1).map(gw => (
                     <button
                       key={gw}
+                      type="button"
                       onClick={() => setActiveGameweek(gw)}
-                      className={`px-4 py-2 rounded text-xs font-bold uppercase transition ${
+                      className={`px-3 py-2 rounded text-xs font-bold uppercase transition ${
                         activeGameweek === gw ? 'bg-brand-neon text-black' : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      Gameweek {gw}
+                      GW {gw}
                     </button>
                   ))}
                 </div>
