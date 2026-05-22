@@ -41,29 +41,26 @@ function takeByPosition(remaining: DraftPick[], pos: string): DraftPick | null {
   return remaining.splice(idx, 1)[0];
 }
 
-function takeFlex(remaining: DraftPick[]): DraftPick | null {
-  const idx = remaining.findIndex(p => p.position === 'RB' || p.position === 'WR' || p.position === 'TE');
-  if (idx === -1) return null;
-  return remaining.splice(idx, 1)[0];
-}
-
-function buildNflPreviewRows(picks: DraftPick[]): (PreviewCardPlayer | null)[][] {
+function buildFootballPreviewRows(picks: DraftPick[]): (PreviewCardPlayer | null)[][] {
   const remaining = [...picks];
-  const wr1 = takeByPosition(remaining, 'WR');
-  const wr2 = takeByPosition(remaining, 'WR');
-  const te = takeByPosition(remaining, 'TE');
-  const rb1 = takeByPosition(remaining, 'RB');
-  const rb2 = takeByPosition(remaining, 'RB');
-  const qb = takeByPosition(remaining, 'QB');
-  const flex = takeFlex(remaining);
+  const gkp = takeByPosition(remaining, 'GKP');
+  const def1 = takeByPosition(remaining, 'DEF');
+  const def2 = takeByPosition(remaining, 'DEF');
+  const def3 = takeByPosition(remaining, 'DEF');
+  const mid1 = takeByPosition(remaining, 'MID');
+  const mid2 = takeByPosition(remaining, 'MID');
+  const mid3 = takeByPosition(remaining, 'MID');
+  const fwd1 = takeByPosition(remaining, 'FWD');
+  const fwd2 = takeByPosition(remaining, 'FWD');
+  const fwd3 = takeByPosition(remaining, 'FWD');
 
   const toCard = (p: DraftPick | null) => (p ? playerToPreviewCard(p) : null);
 
   return [
-    [toCard(wr1), toCard(flex), toCard(wr2)],
-    [toCard(te)],
-    [toCard(rb1), toCard(rb2)],
-    [toCard(qb)],
+    [toCard(fwd1), toCard(fwd2), toCard(fwd3)],
+    [toCard(mid1), toCard(mid2), toCard(mid3)],
+    [toCard(def1), toCard(def2), toCard(def3)],
+    [toCard(gkp)],
   ];
 }
 
@@ -78,7 +75,7 @@ export default function DfsLineupConfirmationScreen({
   const userPicks = (submittedRoster.picks || []).filter(
     (p: DraftPick & { draftedBySeatIndex?: number }) => p.draftedBySeatIndex === 3 || p.draftedBySeatIndex === undefined
   );
-  const previewRows = useMemo(() => buildNflPreviewRows(userPicks), [userPicks]);
+  const previewRows = useMemo(() => buildFootballPreviewRows(userPicks), [userPicks]);
   const starters = useMemo(
     () => previewRows.flat().filter((p): p is PreviewCardPlayer => p != null),
     [previewRows]

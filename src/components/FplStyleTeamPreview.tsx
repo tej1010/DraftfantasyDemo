@@ -267,14 +267,17 @@ export default function FplStyleTeamPreview({
   );
 }
 
-export function nflPreviewLayout(): RowLayout[] {
+export function footballPreviewLayout(): RowLayout[] {
   return [
-    { slots: 3, position: 'WR' },
-    { slots: 1, position: 'TE' },
-    { slots: 2, position: 'RB' },
-    { slots: 1, position: 'QB' },
+    { slots: 3, position: 'FWD' },
+    { slots: 3, position: 'MID' },
+    { slots: 3, position: 'DEF' },
+    { slots: 1, position: 'GKP' },
   ];
 }
+
+/** @deprecated Use footballPreviewLayout */
+export const nflPreviewLayout = footballPreviewLayout;
 
 export function playerToPreviewCard(
   p: {
@@ -300,7 +303,7 @@ export function playerToPreviewCard(
     onBench?: () => void;
   }
 ): PreviewCardPlayer {
-  const club = p.club || p.team || 'NFL';
+  const club = p.club || p.team || '—';
   let fixture = opts?.fixture;
   if (!fixture && p.opp) {
     const away = p.opp.startsWith('@');

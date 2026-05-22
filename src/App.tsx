@@ -282,7 +282,7 @@ export interface FantasyContest {
 export const INITIAL_CONTESTS: FantasyContest[] = [
   {
     id: 'contest-completed-1',
-    title: '🏆 Underdog Mega Championship [GW1]',
+    title: '🏆 Premier Mega Cup [GW1]',
     description: 'A completed 10-round tournament draft where you assembled a high-power roster against BotAlpha, BotBeta, and others. Detailed daily score breakdown matches are live below!',
     entryFee: '$10',
     prizePool: '$5,000',
@@ -295,16 +295,16 @@ export const INITIAL_CONTESTS: FantasyContest[] = [
     tag: 'Classic',
     status: 'Completed',
     finalRoster: [
-      { id: 'nfl-1', name: 'Joe Burrow', position: 'QB', team: 'CIN', points: 32.4, salary: 9800 },
-      { id: 'nfl-2', name: 'Christian McCaffrey', position: 'RB', team: 'SF', points: 29.8, salary: 12000 },
-      { id: 'nfl-3', name: 'Tyreek Hill', position: 'WR', team: 'MIA', points: 26.6, salary: 11500 },
-      { id: 'nfl-4', name: 'Justin Jefferson', position: 'WR', team: 'MIN', points: 28.2, salary: 11200 },
-      { id: 'nfl-5', name: 'CeeDee Lamb', position: 'WR', team: 'DAL', points: 25.4, salary: 11000 },
-      { id: 'nfl-8', name: 'Travis Kelce', position: 'TE', team: 'KC', points: 19.4, salary: 8400 },
-      { id: 'nfl-10', name: 'Amon-Ra St. Brown', position: 'WR', team: 'DET', points: 21.3, salary: 10200 },
-      { id: 'nfl-13', name: 'Breece Hall', position: 'RB', team: 'NYJ', points: 22.4, salary: 9600 },
-      { id: 'nfl-14', name: 'Jahmyr Gibbs', position: 'RB', team: 'DET', points: 20.1, salary: 9200 },
-      { id: 'nfl-20', name: 'George Kittle', position: 'TE', team: 'SF', points: 17.8, salary: 7600 }
+      { id: 'salah-11', name: 'Mohamed Salah', position: 'MID', team: 'LIV', points: 26.4, salary: 12500 },
+      { id: 'haaland-09', name: 'Erling Haaland', position: 'FWD', team: 'MCI', points: 29.8, salary: 13200 },
+      { id: 'palmer-20', name: 'Cole Palmer', position: 'MID', team: 'CHE', points: 28.2, salary: 11800 },
+      { id: 'saka-07', name: 'Bukayo Saka', position: 'MID', team: 'ARS', points: 24.1, salary: 11200 },
+      { id: 'gabriel-06', name: 'Gabriel', position: 'DEF', team: 'ARS', points: 12.4, salary: 6400 },
+      { id: 'vandijk-04', name: 'Virgil van Dijk', position: 'DEF', team: 'LIV', points: 11.8, salary: 6200 },
+      { id: 'raya-01', name: 'David Raya', position: 'GKP', team: 'ARS', points: 9.4, salary: 5200 },
+      { id: 'isak-14', name: 'Alexander Isak', position: 'FWD', team: 'NEW', points: 22.4, salary: 9800 },
+      { id: 'gordon-10', name: 'Anthony Gordon', position: 'MID', team: 'NEW', points: 20.1, salary: 8600 },
+      { id: 'saliba-02', name: 'William Saliba', position: 'DEF', team: 'ARS', points: 10.8, salary: 5800 }
     ]
   },
   {
@@ -400,805 +400,19 @@ function ContestPrizeMetrics({ contest }: { contest: FantasyContest }) {
   );
 }
 
-export interface DfsNflPlayer {
-  id: string;
-  name: string;
-  position: 'QB' | 'RB' | 'WR' | 'TE';
-  team: string;
-  rosterPct: string;
-  opp: string;
-  opRk: string;
-  adp: number;
-  adp90: number;
-  proj: number;
-  avg: number;
-  starType?: 'Q' | 'P' | null;
-}
+import {
+  DFS_FOOTBALL_POOL,
+  DfsFootballPlayer,
+  FOOTBALL_DRAFT_SLOTS,
+  FOOTBALL_POS_LIMITS,
+  footballPositionClass,
+  pickFootballForSeat,
+  getRosterNeeds,
+  formatRosterNeeds,
+  DRAFT_POOL_MIN_PER_ROLE,
+  PLAYERS_PER_ROLE,
+} from './data/dfsFootballPool';
 
-export const DFS_NFL_POOL: DfsNflPlayer[] = [
-  {
-    id: 'nfl-1',
-    name: 'Joe Burrow',
-    position: 'QB',
-    team: 'CIN',
-    rosterPct: '6%',
-    opp: '@BAL',
-    opRk: '26th',
-    adp: 3.6,
-    adp90: 4.1,
-    proj: 32.4,
-    avg: 28.6
-  },
-  {
-    id: 'nfl-2',
-    name: 'Christian McCaffrey',
-    position: 'RB',
-    team: 'SF',
-    rosterPct: '22%',
-    opp: 'TB',
-    opRk: '3rd',
-    adp: 2.6,
-    adp90: 5.3,
-    proj: 29.8,
-    avg: 26.6,
-    starType: 'Q'
-  },
-  {
-    id: 'nfl-3',
-    name: 'Tyreek Hill',
-    position: 'WR',
-    team: 'MIA',
-    rosterPct: '18%',
-    opp: 'SF',
-    opRk: '11th',
-    adp: 4.3,
-    adp90: 4.3,
-    proj: 25.3,
-    avg: 32.6,
-    starType: 'P'
-  },
-  {
-    id: 'nfl-4',
-    name: 'Tua Tagovailoa',
-    position: 'QB',
-    team: 'MIA',
-    rosterPct: '31%',
-    opp: '@GB',
-    opRk: '14th',
-    adp: 2.4,
-    adp90: 7.6,
-    proj: 23.1,
-    avg: 48.6
-  },
-  {
-    id: 'nfl-5',
-    name: 'Ja\'Marr Chase',
-    position: 'WR',
-    team: 'CIN',
-    rosterPct: '15%',
-    opp: '@BAL',
-    opRk: '5th',
-    adp: 4.0,
-    adp90: 3.8,
-    proj: 27.2,
-    avg: 24.1
-  },
-  {
-    id: 'nfl-6',
-    name: 'Patrick Mahomes',
-    position: 'QB',
-    team: 'KC',
-    rosterPct: '42%',
-    opp: 'LV',
-    opRk: '10th',
-    adp: 3.1,
-    adp90: 6.2,
-    proj: 25.8,
-    avg: 29.9
-  },
-  {
-    id: 'nfl-7',
-    name: 'Travis Kelce',
-    position: 'TE',
-    team: 'KC',
-    rosterPct: '38%',
-    opp: 'LV',
-    opRk: '8th',
-    adp: 5.2,
-    adp90: 5.0,
-    proj: 18.4,
-    avg: 19.1
-  },
-  {
-    id: 'nfl-8',
-    name: 'Justin Jefferson',
-    position: 'WR',
-    team: 'MIN',
-    rosterPct: '28%',
-    opp: '@DET',
-    opRk: '2nd',
-    adp: 2.8,
-    adp90: 3.2,
-    proj: 31.9,
-    avg: 28.3
-  },
-  {
-    id: 'nfl-9',
-    name: 'CeeDee Lamb',
-    position: 'WR',
-    team: 'DAL',
-    rosterPct: '25%',
-    opp: 'NYG',
-    opRk: '4th',
-    adp: 2.9,
-    adp90: 3.5,
-    proj: 30.5,
-    avg: 27.4
-  },
-  {
-    id: 'nfl-10',
-    name: 'Saquon Barkley',
-    position: 'RB',
-    team: 'PHI',
-    rosterPct: '19%',
-    opp: '@DAL',
-    opRk: '7th',
-    adp: 3.5,
-    adp90: 4.8,
-    proj: 24.9,
-    avg: 22.1
-  },
-  {
-    id: 'nfl-11',
-    name: 'Derrick Henry',
-    position: 'RB',
-    team: 'BAL',
-    rosterPct: '16%',
-    opp: 'CLE',
-    opRk: '9th',
-    adp: 4.2,
-    adp90: 4.5,
-    proj: 22.3,
-    avg: 20.8
-  },
-  {
-    id: 'nfl-12',
-    name: 'Amon-Ra St. Brown',
-    position: 'WR',
-    team: 'DET',
-    rosterPct: '17%',
-    opp: 'CHI',
-    opRk: '12th',
-    adp: 3.9,
-    adp90: 4.1,
-    proj: 24.1,
-    avg: 23.5
-  },
-  {
-    id: 'nfl-13',
-    name: 'Josh Allen',
-    position: 'QB',
-    team: 'BUF',
-    rosterPct: '45%',
-    opp: 'IND',
-    opRk: '15th',
-    adp: 1.8,
-    adp90: 2.1,
-    proj: 28.5,
-    avg: 26.9
-  },
-  {
-    id: 'nfl-14',
-    name: 'Lamar Jackson',
-    position: 'QB',
-    team: 'BAL',
-    rosterPct: '40%',
-    opp: 'CIN',
-    opRk: '18th',
-    adp: 2.2,
-    adp90: 2.5,
-    proj: 27.8,
-    avg: 25.4
-  },
-  {
-    id: 'nfl-15',
-    name: 'Jalen Hurts',
-    position: 'QB',
-    team: 'PHI',
-    rosterPct: '35%',
-    opp: '@DAL',
-    opRk: '14th',
-    adp: 2.5,
-    adp90: 3.1,
-    proj: 26.4,
-    avg: 24.8
-  },
-  {
-    id: 'nfl-16',
-    name: 'Dak Prescott',
-    position: 'QB',
-    team: 'DAL',
-    rosterPct: '15%',
-    opp: 'NYG',
-    opRk: '11th',
-    adp: 5.6,
-    adp90: 6.2,
-    proj: 20.1,
-    avg: 19.5
-  },
-  {
-    id: 'nfl-17',
-    name: 'C.J. Stroud',
-    position: 'QB',
-    team: 'HOU',
-    rosterPct: '20%',
-    opp: '@TEN',
-    opRk: '21st',
-    adp: 4.8,
-    adp90: 5.2,
-    proj: 21.3,
-    avg: 20.1
-  },
-  {
-    id: 'nfl-18',
-    name: 'Breece Hall',
-    position: 'RB',
-    team: 'NYJ',
-    rosterPct: '38%',
-    opp: '@NE',
-    opRk: '13th',
-    adp: 1.5,
-    adp90: 1.9,
-    proj: 23.4,
-    avg: 21.0
-  },
-  {
-    id: 'nfl-19',
-    name: 'Bijan Robinson',
-    position: 'RB',
-    team: 'ATL',
-    rosterPct: '36%',
-    opp: 'CAR',
-    opRk: '19th',
-    adp: 1.6,
-    adp90: 2.0,
-    proj: 22.8,
-    avg: 20.5
-  },
-  {
-    id: 'nfl-20',
-    name: 'Jonathan Taylor',
-    position: 'RB',
-    team: 'IND',
-    rosterPct: '22%',
-    opp: 'BUF',
-    opRk: '16th',
-    adp: 2.9,
-    adp90: 3.3,
-    proj: 19.5,
-    avg: 18.2
-  },
-  {
-    id: 'nfl-21',
-    name: 'Jahmyr Gibbs',
-    position: 'RB',
-    team: 'DET',
-    rosterPct: '25%',
-    opp: 'CHI',
-    opRk: '12th',
-    adp: 3.2,
-    adp90: 3.7,
-    proj: 20.1,
-    avg: 18.9
-  },
-  {
-    id: 'nfl-22',
-    name: 'Kyren Williams',
-    position: 'RB',
-    team: 'LAR',
-    rosterPct: '28%',
-    opp: '@SEA',
-    opRk: '22nd',
-    adp: 3.1,
-    adp90: 3.5,
-    proj: 21.4,
-    avg: 19.8
-  },
-  {
-    id: 'nfl-23',
-    name: 'Travis Etienne Jr.',
-    position: 'RB',
-    team: 'JAX',
-    rosterPct: '18%',
-    opp: 'MIN',
-    opRk: '14th',
-    adp: 4.5,
-    adp90: 5.1,
-    proj: 17.2,
-    avg: 16.5
-  },
-  {
-    id: 'nfl-24',
-    name: 'James Cook',
-    position: 'RB',
-    team: 'BUF',
-    rosterPct: '16%',
-    opp: 'IND',
-    opRk: '15th',
-    adp: 5.1,
-    adp90: 5.8,
-    proj: 16.8,
-    avg: 15.9
-  },
-  {
-    id: 'nfl-25',
-    name: 'Isiah Pacheco',
-    position: 'RB',
-    team: 'KC',
-    rosterPct: '20%',
-    opp: 'LV',
-    opRk: '10th',
-    adp: 4.9,
-    adp90: 5.5,
-    proj: 18.1,
-    avg: 17.2
-  },
-  {
-    id: 'nfl-26',
-    name: 'Josh Jacobs',
-    position: 'RB',
-    team: 'GB',
-    rosterPct: '15%',
-    opp: 'MIA',
-    opRk: '11th',
-    adp: 5.3,
-    adp90: 5.9,
-    proj: 17.5,
-    avg: 16.7
-  },
-  {
-    id: 'nfl-27',
-    name: 'De\'Von Achane',
-    position: 'RB',
-    team: 'MIA',
-    rosterPct: '24%',
-    opp: '@GB',
-    opRk: '14th',
-    adp: 3.8,
-    adp90: 4.4,
-    proj: 19.2,
-    avg: 18.4
-  },
-  {
-    id: 'nfl-28',
-    name: 'A.J. Brown',
-    position: 'WR',
-    team: 'PHI',
-    rosterPct: '26%',
-    opp: '@DAL',
-    opRk: '7th',
-    adp: 2.1,
-    adp90: 2.4,
-    proj: 23.5,
-    avg: 21.8
-  },
-  {
-    id: 'nfl-29',
-    name: 'Puka Nacua',
-    position: 'WR',
-    team: 'LAR',
-    rosterPct: '22%',
-    opp: '@SEA',
-    opRk: '22nd',
-    adp: 2.5,
-    adp90: 2.9,
-    proj: 22.1,
-    avg: 21.4
-  },
-  {
-    id: 'nfl-30',
-    name: 'Garrett Wilson',
-    position: 'WR',
-    team: 'NYJ',
-    rosterPct: '18%',
-    opp: '@NE',
-    opRk: '13th',
-    adp: 3.4,
-    adp90: 3.9,
-    proj: 20.8,
-    avg: 19.5
-  },
-  {
-    id: 'nfl-31',
-    name: 'Marvin Harrison Jr.',
-    position: 'WR',
-    team: 'ARI',
-    rosterPct: '17%',
-    opp: 'LAC',
-    opRk: '25th',
-    adp: 3.6,
-    adp90: 4.2,
-    proj: 19.9,
-    avg: 18.5
-  },
-  {
-    id: 'nfl-32',
-    name: 'Davante Adams',
-    position: 'WR',
-    team: 'LV',
-    rosterPct: '19%',
-    opp: '@KC',
-    opRk: '10th',
-    adp: 4.1,
-    adp90: 4.7,
-    proj: 18.6,
-    avg: 18.1
-  },
-  {
-    id: 'nfl-33',
-    name: 'Chris Olave',
-    position: 'WR',
-    team: 'NO',
-    rosterPct: '14%',
-    opp: '@ATL',
-    opRk: '19th',
-    adp: 4.5,
-    adp90: 5.1,
-    proj: 17.9,
-    avg: 17.2
-  },
-  {
-    id: 'nfl-34',
-    name: 'Drake London',
-    position: 'WR',
-    team: 'ATL',
-    rosterPct: '16%',
-    opp: 'CAR',
-    opRk: '19th',
-    adp: 4.8,
-    adp90: 5.4,
-    proj: 18.4,
-    avg: 17.6
-  },
-  {
-    id: 'nfl-35',
-    name: 'Nico Collins',
-    position: 'WR',
-    team: 'HOU',
-    rosterPct: '23%',
-    opp: '@TEN',
-    opRk: '21st',
-    adp: 3.2,
-    adp90: 3.6,
-    proj: 21.5,
-    avg: 20.3
-  },
-  {
-    id: 'nfl-36',
-    name: 'Deebo Samuel Sr.',
-    position: 'WR',
-    team: 'SF',
-    rosterPct: '20%',
-    opp: 'TB',
-    opRk: '3rd',
-    adp: 3.8,
-    adp90: 4.3,
-    proj: 19.1,
-    avg: 18.7
-  },
-  {
-    id: 'nfl-37',
-    name: 'Brandon Aiyuk',
-    position: 'WR',
-    team: 'SF',
-    rosterPct: '15%',
-    opp: 'TB',
-    opRk: '3rd',
-    adp: 4.0,
-    adp90: 4.5,
-    proj: 18.5,
-    avg: 18.0
-  },
-  {
-    id: 'nfl-38',
-    name: 'Mike Evans',
-    position: 'WR',
-    team: 'TB',
-    rosterPct: '12%',
-    opp: '@SF',
-    opRk: '3rd',
-    adp: 5.2,
-    adp90: 5.8,
-    proj: 16.9,
-    avg: 16.3
-  },
-  {
-    id: 'nfl-39',
-    name: 'DJ Moore',
-    position: 'WR',
-    team: 'CHI',
-    rosterPct: '11%',
-    opp: '@DET',
-    opRk: '12th',
-    adp: 5.5,
-    adp90: 6.1,
-    proj: 16.2,
-    avg: 15.8
-  },
-  {
-    id: 'nfl-40',
-    name: 'DK Metcalf',
-    position: 'WR',
-    team: 'SEA',
-    rosterPct: '13%',
-    opp: 'LAR',
-    opRk: '22nd',
-    adp: 5.0,
-    adp90: 5.6,
-    proj: 17.0,
-    avg: 16.4
-  },
-  {
-    id: 'nfl-41',
-    name: 'Sam LaPorta',
-    position: 'TE',
-    team: 'DET',
-    rosterPct: '32%',
-    opp: 'CHI',
-    opRk: '12th',
-    adp: 4.5,
-    adp90: 4.8,
-    proj: 16.5,
-    avg: 15.9
-  },
-  {
-    id: 'nfl-42',
-    name: 'Trey McBride',
-    position: 'TE',
-    team: 'ARI',
-    rosterPct: '28%',
-    opp: 'LAC',
-    opRk: '25th',
-    adp: 4.8,
-    adp90: 5.2,
-    proj: 16.2,
-    avg: 15.4
-  },
-  {
-    id: 'nfl-43',
-    name: 'Mark Andrews',
-    position: 'TE',
-    team: 'BAL',
-    rosterPct: '22%',
-    opp: 'CLE',
-    opRk: '9th',
-    adp: 6.1,
-    adp90: 6.8,
-    proj: 14.8,
-    avg: 14.1
-  },
-  {
-    id: 'nfl-44',
-    name: 'Dalton Kincaid',
-    position: 'TE',
-    team: 'BUF',
-    rosterPct: '20%',
-    opp: 'IND',
-    opRk: '15th',
-    adp: 6.5,
-    adp90: 7.1,
-    proj: 14.1,
-    avg: 13.5
-  },
-  {
-    id: 'nfl-45',
-    name: 'George Kittle',
-    position: 'TE',
-    team: 'SF',
-    rosterPct: '24%',
-    opp: 'TB',
-    opRk: '3rd',
-    adp: 5.8,
-    adp90: 6.3,
-    proj: 15.5,
-    avg: 14.8
-  },
-  {
-    id: 'nfl-46',
-    name: 'Kyle Pitts',
-    position: 'TE',
-    team: 'ATL',
-    rosterPct: '18%',
-    opp: 'CAR',
-    opRk: '19th',
-    adp: 7.2,
-    adp90: 7.8,
-    proj: 13.2,
-    avg: 12.6
-  },
-  {
-    id: 'nfl-47',
-    name: 'Evan Engram',
-    position: 'TE',
-    team: 'JAX',
-    rosterPct: '16%',
-    opp: 'MIN',
-    opRk: '14th',
-    adp: 7.5,
-    adp90: 8.1,
-    proj: 12.9,
-    avg: 12.2
-  },
-  {
-    id: 'nfl-48',
-    name: 'Jake Ferguson',
-    position: 'TE',
-    team: 'DAL',
-    rosterPct: '15%',
-    opp: 'NYG',
-    opRk: '4th',
-    adp: 7.9,
-    adp90: 8.5,
-    proj: 13.5,
-    avg: 12.9
-  },
-  {
-    id: 'nfl-49',
-    name: 'Dallas Goedert',
-    position: 'TE',
-    team: 'PHI',
-    rosterPct: '12%',
-    opp: '@DAL',
-    opRk: '7th',
-    adp: 8.1,
-    adp90: 8.9,
-    proj: 13.0,
-    avg: 12.4
-  },
-  {
-    id: 'nfl-50',
-    name: 'Baker Mayfield',
-    position: 'QB',
-    team: 'TB',
-    rosterPct: '10%',
-    opp: '@SF',
-    opRk: '3rd',
-    adp: 8.2,
-    adp90: 9.0,
-    proj: 17.8,
-    avg: 18.2
-  },
-  {
-    id: 'nfl-51',
-    name: 'Kenneth Walker III',
-    position: 'RB',
-    team: 'SEA',
-    rosterPct: '14%',
-    opp: 'LAR',
-    opRk: '22nd',
-    adp: 6.2,
-    adp90: 6.8,
-    proj: 16.4,
-    avg: 15.9
-  },
-  {
-    id: 'nfl-52',
-    name: 'Rachaad White',
-    position: 'RB',
-    team: 'TB',
-    rosterPct: '16%',
-    opp: '@SF',
-    opRk: '3rd',
-    adp: 6.0,
-    adp90: 6.6,
-    proj: 15.8,
-    avg: 15.3
-  },
-  {
-    id: 'nfl-53',
-    name: 'Stefon Diggs',
-    position: 'WR',
-    team: 'HOU',
-    rosterPct: '14%',
-    opp: '@TEN',
-    opRk: '21st',
-    adp: 5.1,
-    adp90: 5.7,
-    proj: 16.5,
-    avg: 16.0
-  },
-  {
-    id: 'nfl-54',
-    name: 'Cooper Kupp',
-    position: 'WR',
-    team: 'LAR',
-    rosterPct: '18%',
-    opp: '@SEA',
-    opRk: '22nd',
-    adp: 4.9,
-    adp90: 5.4,
-    proj: 17.8,
-    avg: 17.1
-  },
-  {
-    id: 'nfl-55',
-    name: 'Jaylen Waddle',
-    position: 'WR',
-    team: 'MIA',
-    rosterPct: '13%',
-    opp: '@GB',
-    opRk: '14th',
-    adp: 5.8,
-    adp90: 6.4,
-    proj: 15.9,
-    avg: 15.5
-  },
-  {
-    id: 'nfl-56',
-    name: 'Zay Flowers',
-    position: 'WR',
-    team: 'BAL',
-    rosterPct: '16%',
-    opp: 'CLE',
-    opRk: '9th',
-    adp: 6.4,
-    adp90: 7.0,
-    proj: 15.2,
-    avg: 14.8
-  },
-  {
-    id: 'nfl-57',
-    name: 'David Montgomery',
-    position: 'RB',
-    team: 'DET',
-    rosterPct: '15%',
-    opp: 'CHI',
-    opRk: '12th',
-    adp: 6.8,
-    adp90: 7.4,
-    proj: 15.5,
-    avg: 15.0
-  },
-  {
-    id: 'nfl-58',
-    name: 'Alvin Kamara',
-    position: 'RB',
-    team: 'NO',
-    rosterPct: '18%',
-    opp: '@ATL',
-    opRk: '19th',
-    adp: 5.9,
-    adp90: 6.5,
-    proj: 16.8,
-    avg: 16.1
-  },
-  {
-    id: 'nfl-59',
-    name: 'George Pickens',
-    position: 'WR',
-    team: 'PIT',
-    rosterPct: '12%',
-    opp: '@WAS',
-    opRk: '8th',
-    adp: 7.0,
-    adp90: 7.6,
-    proj: 14.5,
-    avg: 14.1
-  },
-  {
-    id: 'nfl-60',
-    name: 'Terry McLaurin',
-    position: 'WR',
-    team: 'WAS',
-    rosterPct: '14%',
-    opp: 'PIT',
-    opRk: '11th',
-    adp: 7.2,
-    adp90: 7.8,
-    proj: 14.8,
-    avg: 14.3
-  }
-];
 
 export default function App() {
   // Page Navigation Tabs & State
@@ -1309,12 +523,11 @@ export default function App() {
   const [dfsDraftSpeed, setDfsDraftSpeed] = useState<number>(10);
   const [dfsConfirmPicks, setDfsConfirmPicks] = useState<boolean>(false);
   const [dfsSearchText, setDfsSearchText] = useState<string>('');
-  const [dfsPositionFilter, setDfsPositionFilter] = useState<'ALL' | 'QB' | 'RB' | 'WR' | 'TE' | 'FLEX'>('ALL');
-  const [dfsRemoveUnavailable, setDfsRemoveUnavailable] = useState<boolean>(false);
+  const [dfsPositionFilter, setDfsPositionFilter] = useState<'ALL' | 'GKP' | 'DEF' | 'MID' | 'FWD'>('ALL');
   const [dfsQueueIds, setDfsQueueIds] = useState<string[]>([]);
   const [dfsActiveSeatIndex, setDfsActiveSeatIndex] = useState<number>(3); // User corresponds to Seat #4 (index 3)
   const [dfsCountdown, setDfsCountdown] = useState<number | null>(null);
-  const [selectedDfsPlayer, setSelectedDfsPlayer] = useState<DfsNflPlayer | null>(null);
+  const [selectedDfsPlayer, setSelectedDfsPlayer] = useState<DfsFootballPlayer | null>(null);
   const [dfsModalTab, setDfsModalTab] = useState<'news' | 'stats' | 'gamelog'>('stats');
   const [submittedDfsRoster, setSubmittedDfsRoster] = useState<{ contest: FantasyContest; picks: any[] } | null>(null);
   const [dfsContestFilter, setDfsContestFilter] = useState<'upcoming' | 'live' | 'completed'>('upcoming');
@@ -1334,6 +547,24 @@ export default function App() {
     adp: number;
     avg: number;
   }>>([]);
+
+  const dfsDraftedIdSet = useMemo(
+    () => new Set(dfsDraftedPlayers.map(p => p.id)),
+    [dfsDraftedPlayers]
+  );
+
+  const dfsVisiblePlayers = useMemo(() => {
+    const q = dfsSearchText.trim().toLowerCase();
+    return DFS_FOOTBALL_POOL.filter(player => {
+      const matchesSearch =
+        !q ||
+        player.name.toLowerCase().includes(q) ||
+        player.team.toLowerCase().includes(q);
+      const matchesPos =
+        dfsPositionFilter === 'ALL' || player.position === dfsPositionFilter;
+      return matchesSearch && matchesPos;
+    }).sort((a, b) => b.proj - a.proj);
+  }, [dfsSearchText, dfsPositionFilter]);
 
   // Contest Listing state and registration handler
   const [contests, setContests] = useState<FantasyContest[]>(INITIAL_CONTESTS);
@@ -1378,16 +609,16 @@ export default function App() {
       const total = Number((u1 + u2 + u3).toFixed(1));
 
       const roster = m.isUser && contest.finalRoster ? contest.finalRoster : [
-        { id: 'm-1', name: 'Patrick Mahomes', position: 'QB', team: 'KC', points: 26.5 },
-        { id: 'm-2', name: 'Saquon Barkley', position: 'RB', team: 'PHI', points: 19.8 },
-        { id: 'm-3', name: 'Amon-Ra St. Brown', position: 'WR', team: 'DET', points: 21.3 },
-        { id: 'm-4', name: 'George Kittle', position: 'TE', team: 'SF', points: 16.2 },
-        { id: 'm-5', name: 'DK Metcalf', position: 'WR', team: 'SEA', points: 18.4 },
-        { id: 'm-6', name: 'Jared Goff', position: 'QB', team: 'DET', points: 22.1 },
-        { id: 'm-7', name: 'Kenneth Walker', position: 'RB', team: 'SEA', points: 15.4 },
-        { id: 'm-8', name: 'Zay Flowers', position: 'WR', team: 'BAL', points: 14.2 },
-        { id: 'm-9', name: 'Dalton Kincaid', position: 'TE', team: 'BUF', points: 11.8 },
-        { id: 'm-10', name: 'Kyren Williams', position: 'RB', team: 'LAR', points: 17.6 },
+        { id: 'm-1', name: 'Mohamed Salah', position: 'MID', team: 'LIV', points: 26.5 },
+        { id: 'm-2', name: 'Erling Haaland', position: 'FWD', team: 'MCI', points: 24.8 },
+        { id: 'm-3', name: 'Cole Palmer', position: 'MID', team: 'CHE', points: 21.3 },
+        { id: 'm-4', name: 'Gabriel', position: 'DEF', team: 'ARS', points: 11.2 },
+        { id: 'm-5', name: 'Anthony Gordon', position: 'MID', team: 'NEW', points: 18.4 },
+        { id: 'm-6', name: 'David Raya', position: 'GKP', team: 'ARS', points: 8.1 },
+        { id: 'm-7', name: 'Bukayo Saka', position: 'MID', team: 'ARS', points: 19.4 },
+        { id: 'm-8', name: 'Alexander Isak', position: 'FWD', team: 'NEW', points: 22.2 },
+        { id: 'm-9', name: 'Virgil van Dijk', position: 'DEF', team: 'LIV', points: 10.8 },
+        { id: 'm-10', name: 'William Saliba', position: 'DEF', team: 'ARS', points: 9.6 },
       ];
 
       const playerScores = roster.map((p, pIdx) => {
@@ -1472,14 +703,14 @@ export default function App() {
     
     // Check if draft is already over
     if (dfsDraftedPlayers.length >= 40) {
-      addToast("The Underdog Draft is complete! Click Submit Lineup below to finalize your tournament squad.", "success");
+      addToast('Draft complete! Submit your lineup to finalize your Premier League squad.', 'success');
       setDfsDraftPaused(true);
       return;
     }
 
     // Find undrafted candidates
     const draftedIds = dfsDraftedPlayers.map(dp => dp.id);
-    const availablePlayers = DFS_NFL_POOL.filter(p => !draftedIds.includes(p.id));
+    const availablePlayers = DFS_FOOTBALL_POOL.filter(p => !draftedIds.includes(p.id));
     
     if (availablePlayers.length === 0) {
       addToast("The draft is complete! All rosters are fully assembled. Click Submit Lineup below!", "success");
@@ -1487,42 +718,28 @@ export default function App() {
       return;
     }
 
-    // Pick top available candidate
-    let chosenPlayer = availablePlayers[0];
+    const seatPicks = dfsDraftedPlayers.filter(dp => (dp as any).draftedBySeatIndex === dfsActiveSeatIndex);
+    let chosenPlayer = pickFootballForSeat(availablePlayers, seatPicks);
+    let pickedFromQueue = false;
 
-    // If it's a Bot's turn, let's optimize their position selection if they already have plenty
-    if (dfsActiveSeatIndex !== 3) {
-      // Find what they already drafted
-      const botPicks = dfsDraftedPlayers.filter(dp => (dp as any).draftedBySeatIndex === dfsActiveSeatIndex);
-      const botQbs = botPicks.filter(p => p.position === 'QB').length;
-      const botRbs = botPicks.filter(p => p.position === 'RB').length;
-
-      // Try to maintain a balanced roster
-      if (botQbs >= 1) {
-        const nonQb = availablePlayers.find(p => p.position !== 'QB');
-        if (nonQb) chosenPlayer = nonQb;
-      }
-      if (botRbs >= 2) {
-        const nonRbAndQb = availablePlayers.find(p => p.position !== 'RB' && p.position !== 'QB');
-        if (nonRbAndQb) chosenPlayer = nonRbAndQb;
-      }
-    } else {
-      // User's turn! Check Priority Queue first
-      if (dfsQueueIds.length > 0) {
-        const queuedId = dfsQueueIds[0];
-        const queuedFound = availablePlayers.find(p => p.id === queuedId);
-        if (queuedFound) {
+    if (dfsActiveSeatIndex === 3 && dfsQueueIds.length > 0) {
+      const queuedId = dfsQueueIds[0];
+      const queuedFound = availablePlayers.find(p => p.id === queuedId);
+      setDfsQueueIds(prev => prev.filter(id => id !== queuedId));
+      if (queuedFound) {
+        const needs = getRosterNeeds(seatPicks);
+        if (needs[queuedFound.position as keyof typeof needs] > 0) {
           chosenPlayer = queuedFound;
-          // Pull from queue
-          setDfsQueueIds(prev => prev.filter(id => id !== queuedId));
-          addToast(`🎯 Drafted ${chosenPlayer.name} (${chosenPlayer.position}) from your Priority Queue!`, 'success');
+          pickedFromQueue = true;
+          addToast(`Drafted ${chosenPlayer.name} (${chosenPlayer.position}) from your queue.`, 'success');
         } else {
-          // If queued player was already drafted somehow
-          setDfsQueueIds(prev => prev.filter(id => id !== queuedId));
+          addToast(`${queuedFound.position} slot is full — auto-picking by role need.`, 'info');
         }
-      } else {
-        addToast(`⏰ Pick timer expired! System auto-drafted ${chosenPlayer.name} (${chosenPlayer.position}) for your lineup.`, 'info');
       }
+    }
+
+    if (dfsActiveSeatIndex === 3 && !pickedFromQueue) {
+      addToast(`Auto-picked ${chosenPlayer.name} (${chosenPlayer.position}).`, 'info');
     }
 
     // Register selection
@@ -1548,7 +765,7 @@ export default function App() {
 
     // Calculate next turn using snake draft formula
     if (newPicksList.length >= 40) {
-      addToast("🏆 Underdog Snake Draft is complete! Click Submit Lineup to view your roster page.", "success");
+      addToast('Premier snake draft complete! Submit lineup to view your squad.', 'success');
       setDfsDraftPaused(true);
     } else {
       const nextSeat = getSeatIndexForPick(newPicksList.length);
@@ -1597,7 +814,7 @@ export default function App() {
     }
   }, [activeContestDraft, dfsDraftPaused, dfsCountdown, dfsDraftSpeed, dfsActiveSeatIndex, dfsDraftedPlayers, dfsQueueIds]);
 
-  const handleDfsManualDraft = (player: DfsNflPlayer) => {
+  const handleDfsManualDraft = (player: DfsFootballPlayer) => {
     if (!activeContestDraft) return;
 
     // Check if player is already drafted
@@ -1611,11 +828,8 @@ export default function App() {
     const userPicks = dfsDraftedPlayers.filter(p => p.draftedBySeatIndex === 3);
     const existingPosCount = userPicks.filter(p => p.position === player.position).length;
     
-    let isFull = false;
-    if (player.position === 'QB' && existingPosCount >= 2) isFull = true;
-    if (player.position === 'RB' && existingPosCount >= 4) isFull = true;
-    if (player.position === 'WR' && existingPosCount >= 5) isFull = true;
-    if (player.position === 'TE' && existingPosCount >= 2) isFull = true;
+    const limit = FOOTBALL_POS_LIMITS[player.position as keyof typeof FOOTBALL_POS_LIMITS];
+    const isFull = limit != null && existingPosCount >= limit;
 
     if (isFull) {
       addToast(`Slot count of ${existingPosCount} is full for position ${player.position}! Select a different position to diversify your lineup.`, 'error');
@@ -1646,7 +860,7 @@ export default function App() {
 
     // Calculate next turn using snake draft formula
     if (newPicksList.length >= 40) {
-      addToast("🏆 Underdog Snake Draft is complete! Click Submit Lineup to view your roster page.", "success");
+      addToast('Premier snake draft complete! Submit lineup to view your squad.', 'success');
       setDfsDraftPaused(true);
     } else {
       const nextSeat = getSeatIndexForPick(newPicksList.length);
@@ -1804,7 +1018,6 @@ export default function App() {
     setDfsConfirmPicks(false);
     setDfsSearchText('');
     setDfsPositionFilter('ALL');
-    setDfsRemoveUnavailable(false);
     setDfsQueueIds([]);
     setDfsActiveSeatIndex(3);
     setDfsCountdown(null);
@@ -3536,10 +2749,10 @@ export default function App() {
                                         >
                                           <div className="col-span-2">
                                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-black uppercase ${
-                                              player.position === 'QB' ? 'bg-indigo-500/10 text-indigo-400' :
-                                              player.position === 'RB' ? 'bg-orange-500/10 text-orange-400' :
-                                              player.position === 'WR' ? 'bg-lime-500/10 text-lime-400' :
-                                              player.position === 'TE' ? 'bg-cyan-500/10 text-cyan-400' :
+                                              player.position === 'GKP' ? 'bg-sky-500/10 text-sky-400' :
+                                              player.position === 'DEF' ? 'bg-blue-500/10 text-blue-400' :
+                                              player.position === 'MID' ? 'bg-emerald-500/10 text-emerald-400' :
+                                              player.position === 'FWD' ? 'bg-rose-500/10 text-rose-400' :
                                               'bg-amber-500/10 text-amber-400'
                                             }`}>
                                               {player.position}
@@ -3911,7 +3124,7 @@ export default function App() {
 
                       <div className="space-y-4">
                         <p className="text-xs text-slate-400 font-medium">
-                          Standby! Computative bot opponents are registering seats. Ready your selection finger under salary cap limits!
+                          Standby! Bot managers are taking their seats. Build your 1 GKP · 3 DEF · 3 MID · 3 FWD squad.
                         </p>
 
                         <button
@@ -3971,7 +3184,7 @@ export default function App() {
                       </div>
                       
                       <button 
-                        onClick={() => addToast("DFS Contest Rules: Draft 7 unique assets under standard league regulations. High performance structures claim premium cash rewards.", "info")}
+                        onClick={() => addToast('Contest rules: Draft 10 Premier League players (1 GKP, 3 DEF, 3 MID, 3 FWD). Unique ownership per league.', 'info')}
                         className="px-3 py-1.5 rounded-lg border border-white/10 hover:border-brand-neon text-xs font-bold text-slate-300 hover:text-black hover:bg-brand-neon transition"
                       >
                         Contest Rules
@@ -4018,15 +3231,10 @@ export default function App() {
                         
                         // Calculate position counts
                         const picks = dfsDraftedPlayers.filter(p => p.draftedBySeatIndex === idx);
-                        const qbCount = picks.filter(p => p.position === 'QB').length;
-                        const rbCount = picks.filter(p => p.position === 'RB').length;
-                        const wrCount = picks.filter(p => p.position === 'WR').length;
-                        const teCount = picks.filter(p => p.position === 'TE').length;
-
-                        const finalQbCount = qbCount;
-                        const finalRbCount = rbCount;
-                        const finalWrCount = wrCount;
-                        const finalTeCount = teCount;
+                        const gkpCount = picks.filter(p => p.position === 'GKP').length;
+                        const defCount = picks.filter(p => p.position === 'DEF').length;
+                        const midCount = picks.filter(p => p.position === 'MID').length;
+                        const fwdCount = picks.filter(p => p.position === 'FWD').length;
 
                         return (
                           <div
@@ -4038,10 +3246,10 @@ export default function App() {
                             }`}
                           >
                             <div className="flex items-center justify-around text-[9px] font-mono font-bold mb-1.5 tracking-tight border-b border-white/5 pb-1">
-                              <span className={finalQbCount > 0 ? "text-emerald-400 text-[10px]" : "text-slate-600"}>QB<b>{finalQbCount}</b></span>
-                              <span className={finalRbCount > 0 ? "text-amber-400 text-[10px]" : "text-slate-600"}>RB<b>{finalRbCount}</b></span>
-                              <span className={finalWrCount > 0 ? "text-rose-400 text-[10px]" : "text-slate-600"}>WR<b>{finalWrCount}</b></span>
-                              <span className={finalTeCount > 0 ? "text-blue-400 text-[10px]" : "text-slate-600"}>TE<b>{finalTeCount}</b></span>
+                              <span className={gkpCount > 0 ? 'text-sky-400 text-[10px]' : 'text-slate-600'}>GK<b>{gkpCount}</b></span>
+                              <span className={defCount > 0 ? 'text-blue-400 text-[10px]' : 'text-slate-600'}>DEF<b>{defCount}</b></span>
+                              <span className={midCount > 0 ? 'text-emerald-400 text-[10px]' : 'text-slate-600'}>MID<b>{midCount}</b></span>
+                              <span className={fwdCount > 0 ? 'text-rose-400 text-[10px]' : 'text-slate-600'}>FWD<b>{fwdCount}</b></span>
                             </div>
                             
                             <h4 className="font-display font-bold text-xs text-white truncate">{name}</h4>
@@ -4076,7 +3284,7 @@ export default function App() {
                         <div className="space-y-2 overflow-y-auto min-h-0">
                           {Array.from({ length: 5 }).map((_, slotIdx) => {
                             const queuedPlayerId = dfsQueueIds[slotIdx];
-                            const queuedPlayer = queuedPlayerId ? DFS_NFL_POOL.find(p => p.id === queuedPlayerId) : null;
+                            const queuedPlayer = queuedPlayerId ? DFS_FOOTBALL_POOL.find(p => p.id === queuedPlayerId) : null;
                             const isSlotOccupied = !!queuedPlayer;
 
                             return (
@@ -4128,12 +3336,17 @@ export default function App() {
                     </div>
 
                     {/* ====== COLUMN 2: PLAYERS POOL ====== */}
-                    <div className="lg:col-span-6 bg-[#0b0f19] p-2.5 rounded-xl border border-white/10 flex flex-col gap-2 min-h-0 shadow-xl">
+                    <div className="lg:col-span-6 bg-[#0b0f19] p-2.5 rounded-xl border border-white/10 flex flex-col gap-2 min-h-0 flex-1 shadow-xl">
                       
                       {/* Banner Info */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2 shrink-0">
                         <div>
-                          <h3 className="font-display font-black text-sm text-white uppercase tracking-wider">Players Pool</h3>
+                          <div>
+                            <h3 className="font-display font-black text-sm text-white uppercase tracking-wider">Players Pool</h3>
+                            <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              {DRAFT_POOL_MIN_PER_ROLE.GKP} GKP · {DRAFT_POOL_MIN_PER_ROLE.DEF} DEF · {DRAFT_POOL_MIN_PER_ROLE.MID} MID · {DRAFT_POOL_MIN_PER_ROLE.FWD} FWD ({PLAYERS_PER_ROLE} per role)
+                            </p>
+                          </div>
                         </div>
                         
                         <div className="flex flex-wrap items-center gap-3.5 text-xs">
@@ -4202,7 +3415,7 @@ export default function App() {
 
                         {/* Positions */}
                         <div className="flex items-center gap-0.5 bg-black/40 p-1 rounded-lg overflow-x-auto md:col-span-5 scrollbar-none">
-                          {(['ALL', 'QB', 'RB', 'WR', 'TE', 'FLEX'] as const).map(pos => (
+                          {(['ALL', 'GKP', 'DEF', 'MID', 'FWD'] as const).map(pos => (
                             <button
                               key={pos}
                               onClick={() => setDfsPositionFilter(pos)}
@@ -4217,21 +3430,17 @@ export default function App() {
                           ))}
                         </div>
 
-                        {/* Drop unavailable check */}
-                        <label className="flex items-center justify-end gap-1.5 text-[9px] text-slate-400 cursor-pointer select-none md:col-span-3">
-                          <input 
-                            type="checkbox"
-                            checked={dfsRemoveUnavailable}
-                            onChange={(e) => setDfsRemoveUnavailable(e.target.checked)}
-                            className="rounded accent-brand-neon bg-[#111827] border-white/5 w-3 h-3 cursor-pointer"
-                          />
-                          Remove Unavailable Players
-                        </label>
+                        <p className="md:col-span-3 text-[9px] text-slate-500 font-mono md:text-right leading-tight">
+                          Showing {dfsVisiblePlayers.length} of {DFS_FOOTBALL_POOL.length} · drafted shown as Locked
+                        </p>
 
                       </div>
 
                       {/* TABLE SECTION */}
-                      <div className="border border-white/5 rounded-lg bg-[#090d16]/35 flex-1 min-h-0 overflow-auto">
+                      <div
+                        id="dfs-players-table-scroll"
+                        className="border border-white/5 rounded-lg bg-[#090d16]/35 flex-1 min-h-[280px] overflow-y-auto overflow-x-auto"
+                      >
                         <table className="w-full text-left text-sm border-collapse table-fixed">
                           <colgroup>
                             <col className="w-[36px]" />
@@ -4252,30 +3461,14 @@ export default function App() {
                               <th className="py-2 px-1 font-mono">Tm</th>
                               <th className="py-2 px-1 font-mono">Rost%</th>
                               <th className="py-2 px-1">OPP</th>
-                              <th className="py-2 px-1 font-mono text-center">OpRK</th>
+                              <th className="py-2 px-1 font-mono text-center">FDR</th>
                               <th className="py-2 px-1 font-mono">Avg</th>
                               <th className="py-2 px-2 text-center sticky right-0 bg-[#0d1222] z-20 shadow-[-4px_0_8px_rgba(0,0,0,0.4)]">Draft</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-white/5 text-slate-200">
-                            {DFS_NFL_POOL
-                              .filter(player => {
-                                const mSearch = player.name.toLowerCase().includes(dfsSearchText.toLowerCase()) || player.team.toLowerCase().includes(dfsSearchText.toLowerCase());
-                                let mPos = true;
-                                if (dfsPositionFilter !== 'ALL') {
-                                  if (dfsPositionFilter === 'FLEX') {
-                                    mPos = player.position === 'RB' || player.position === 'WR' || player.position === 'TE';
-                                  } else {
-                                    mPos = player.position === dfsPositionFilter;
-                                  }
-                                }
-                                const isDrafted = dfsDraftedPlayers.some(dp => dp.id === player.id);
-                                const mUnavailable = !dfsRemoveUnavailable || !isDrafted;
-
-                                return mSearch && mPos && mUnavailable;
-                              })
-                              .map((player, idx) => {
-                                const isDrafted = dfsDraftedPlayers.some(dp => dp.id === player.id);
+                            {dfsVisiblePlayers.map((player, idx) => {
+                                const isDrafted = dfsDraftedIdSet.has(player.id);
                                 const isQueued = dfsQueueIds.includes(player.id);
 
                                 return (
@@ -4323,12 +3516,7 @@ export default function App() {
                                         >
                                           {player.name}
                                         </button>
-                                        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-black uppercase font-mono ${
-                                          player.position === 'QB' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25' :
-                                          player.position === 'RB' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/25' :
-                                          player.position === 'WR' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/25' :
-                                          'bg-blue-500/10 text-blue-400 border border-blue-500/25'
-                                        }`}>
+                                        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-black uppercase font-mono ${footballPositionClass(player.position)}`}>
                                           {player.position}
                                         </span>
                                       </div>
@@ -4374,6 +3562,13 @@ export default function App() {
                                   </tr>
                                 );
                               })}
+                            {dfsVisiblePlayers.length === 0 && (
+                              <tr>
+                                <td colSpan={9} className="py-8 text-center text-slate-500 text-xs font-mono">
+                                  No players match your search. Clear search or tap ALL to see the full pool.
+                                </td>
+                              </tr>
+                            )}
                           </tbody>
                         </table>
                       </div>
@@ -4387,34 +3582,41 @@ export default function App() {
                         <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
                           <h3 className="font-display font-black text-sm text-white uppercase tracking-wider">My Lineup</h3>
                           <span className="text-xs font-mono text-brand-neon font-black">
-                            {dfsDraftedPlayers.filter(p => p.draftedBySeatIndex === 3).length}/7
+                            {dfsDraftedPlayers.filter(p => p.draftedBySeatIndex === 3).length}/10
                           </span>
                         </div>
+                        {(() => {
+                          const userPicks = dfsDraftedPlayers.filter(p => p.draftedBySeatIndex === 3);
+                          const needs = getRosterNeeds(userPicks);
+                          const needText = formatRosterNeeds(needs);
+                          return (
+                            <p className={`text-[10px] font-mono px-2 py-1 rounded-lg border ${
+                              needText === 'Roster complete'
+                                ? 'text-brand-neon border-brand-neon/30 bg-brand-neon/10'
+                                : 'text-amber-300 border-amber-500/30 bg-amber-500/10'
+                            }`}>
+                              {needText === 'Roster complete' ? '✓ All roles filled' : `Still need: ${needText}`}
+                            </p>
+                          );
+                        })()}
 
                         {/* Starters stacked cards */}
                         <div className="space-y-1.5 overflow-y-auto min-h-0 flex-1 py-1.5">
                           {(() => {
                             const userPicks = dfsDraftedPlayers.filter(p => p.draftedBySeatIndex === 3);
 
-                            const slots = [
-                              { key: 'QB', label: 'QB', themeColor: 'border-emerald-500/25 text-emerald-400 bg-emerald-500/5' },
-                              { key: 'RB', label: 'RB', themeColor: 'border-amber-500/25 text-amber-400 bg-amber-500/5' },
-                              { key: 'RB', label: 'RB', themeColor: 'border-amber-500/25 text-amber-400 bg-amber-500/5' },
-                              { key: 'WR', label: 'WR', themeColor: 'border-rose-500/25 text-rose-400 bg-rose-500/5' },
-                              { key: 'WR', label: 'WR', themeColor: 'border-rose-500/25 text-rose-400 bg-rose-500/5' },
-                              { key: 'TE', label: 'TE', themeColor: 'border-blue-500/25 text-blue-400 bg-blue-500/5' },
-                              { key: 'FLEX', label: 'FLEX', themeColor: 'border-purple-500/25 text-purple-400 bg-purple-500/5' }
-                            ];
+                            const slots = FOOTBALL_DRAFT_SLOTS.map(s => ({
+                              key: s.key,
+                              label: s.label,
+                              themeColor: s.theme,
+                            }));
 
                             const remainingPicks = [...userPicks];
+                            const slotPos = (key: string) => (key === 'FWD2' ? 'FWD' : key);
 
                             return slots.map((slot, sIdx) => {
-                              let matchingPickIndex = -1;
-                              if (slot.key === 'FLEX') {
-                                matchingPickIndex = remainingPicks.findIndex(p => p.position === 'RB' || p.position === 'WR' || p.position === 'TE');
-                              } else {
-                                matchingPickIndex = remainingPicks.findIndex(p => p.position === slot.key);
-                              }
+                              const pos = slotPos(slot.key);
+                              const matchingPickIndex = remainingPicks.findIndex(p => p.position === pos);
 
                               let matchingPlayer: any = null;
                               if (matchingPickIndex !== -1) {
@@ -4439,8 +3641,8 @@ export default function App() {
                                       </div>
                                       <button
                                         onClick={() => {
-                                          const fullNflPlayer = DFS_NFL_POOL.find(p => p.id === matchingPlayer.id) || matchingPlayer;
-                                          setSelectedDfsPlayer(fullNflPlayer);
+                                          const fullPlayer = DFS_FOOTBALL_POOL.find(p => p.id === matchingPlayer.id) || matchingPlayer;
+                                          setSelectedDfsPlayer(fullPlayer);
                                           setDfsModalTab('stats');
                                         }}
                                         className="text-white hover:text-brand-neon text-sm font-bold truncate block w-full text-left"
@@ -6294,7 +5496,7 @@ export default function App() {
 
       </div>
 
-      {/* GLOBAL DFS NFL PLAYER MODAL DISPLAY */}
+      {/* GLOBAL DFS FOOTBALL PLAYER MODAL */}
       <DfsPlayerStatsModal
         selectedDfsPlayer={selectedDfsPlayer}
         onClose={() => setSelectedDfsPlayer(null)}
