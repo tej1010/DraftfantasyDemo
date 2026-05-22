@@ -7,6 +7,7 @@ import {
   WaiverClaim, Matchup, Standings, Notification, ScoringTemplate, 
   DEFAULT_SCORING_TEMPLATE, PlayerPosition, LeagueMember
 } from './src/types';
+import { buildStaticH2HMatchups } from './src/data/staticMatchups';
 
 const app = express();
 const PORT = 3000;
@@ -52,6 +53,9 @@ function seedDemoLeague() {
     { userId: 'bot-arteta', username: 'Mikel Arteta Bot', teamId: 'team-bot-arteta', teamName: 'The Arsenal Way', isHost: false, isBot: true, waiverPriority: 4 },
   ];
 
+  const userActiveIds = ['salah-11', 'palmer-20', 'saka-07', 'haaland-09', 'gabriel-06', 'saliba-02', 'vandijk-04', 'alexander-arnold-66'];
+  const userBenchIds = ['watkins-11', 'bowen-20', 'martinez-23'];
+
   const teams: Team[] = [
     {
       id: 'team-user',
@@ -60,10 +64,10 @@ function seedDemoLeague() {
       username: 'Gaffer_Tejpal',
       name: 'Tejpal FC',
       formation: '4-4-2',
-      captainId: '',
-      viceCaptainId: '',
-      activePlayerIds: [],
-      benchPlayerIds: []
+      captainId: 'salah-11',
+      viceCaptainId: 'palmer-20',
+      activePlayerIds: userActiveIds,
+      benchPlayerIds: userBenchIds
     },
     {
       id: 'team-bot-pep',
@@ -137,6 +141,25 @@ function seedDemoLeague() {
   };
 
   leagues.push(demoLeague);
+  matchups[demoLeagueId] = buildStaticH2HMatchups(demoLeagueId, teams);
+
+  [...userActiveIds, ...userBenchIds].forEach(id => {
+    updatePlayerOwnershipInState(id, 'team-user', 'Tejpal FC');
+  });
+
+  waiverClaims.push({
+    id: 'claim-seed-demo-1',
+    leagueId: demoLeagueId,
+    teamId: 'team-user',
+    teamName: 'Tejpal FC',
+    playerToDropId: 'bowen-20',
+    playerToDropName: 'Jarrod Bowen',
+    playerToAddId: 'isak-14',
+    playerToAddName: 'Alexander Isak',
+    status: 'Pending',
+    priorityValue: 2,
+    timestamp: new Date(Date.now() - 3600000).toISOString()
+  });
 }
 
 // Global store of Draft Sessions by leagueId
@@ -145,6 +168,25 @@ let draftSessions: { [leagueId: string]: DraftSession } = {};
 let waiverClaims: WaiverClaim[] = [];
 // Global store of matchups by leagueId
 let matchups: { [leagueId: string]: Matchup[] } = {};
+
+function resetPlatformState() {
+  globalPlayers = JSON.parse(JSON.stringify(INITIAL_MOCK_PLAYERS));
+  leagues = [];
+  waiverClaims = [];
+  matchups = {};
+  draftSessions = {};
+  notifications = [
+    {
+      id: 'notif-1',
+      title: 'Welcome to Draft Fantasy!',
+      message: 'Set up your first league to host a live Snake Draft and compete head-to-head.',
+      type: 'System',
+      timestamp: new Date().toISOString(),
+      read: false
+    }
+  ];
+  seedDemoLeague();
+}
 
 // Invoke Seeder initial
 seedDemoLeague();
@@ -321,14 +363,21 @@ function executeDraftPick(leagueId: string, teamId: string, playerId: string): {
   return { success: true, message: 'Draft pick recorded.', pick };
 }
 
-// Generate head-to-head fixtures
+// Generate head-to-head fixtures with future kickoff dates
 function generateH2HFixtures(league: League) {
   const teams = league.teams;
   const leagueId = league.id;
-  const listMatches: Matchup[] = [];
 
+  if (teams.length >= 4) {
+    matchups[leagueId] = buildStaticH2HMatchups(
+      leagueId,
+      teams.map(t => ({ id: t.id, name: t.name, username: t.username }))
+    );
+    return;
+  }
+
+  const listMatches: Matchup[] = [];
   if (teams.length >= 2) {
-    // Gameweek 1
     listMatches.push({
       id: `m-gw1-1-${leagueId}`,
       leagueId,
@@ -343,97 +392,11 @@ function generateH2HFixtures(league: League) {
       teamBManager: teams[1].username,
       teamBScore: 0,
       teamBPlayerPoints: {},
-      status: 'Upcoming'
+      status: 'Upcoming',
+      kickoffAt: new Date(Date.now() + 2 * 86400000).toISOString(),
+      venue: `Gameweek 1 — ${league.name}`,
     });
-    
-    if (teams.length >= 4) {
-      listMatches.push({
-        id: `m-gw1-2-${leagueId}`,
-        leagueId,
-        gameweek: 1,
-        teamAId: teams[2].id,
-        teamAName: teams[2].name,
-        teamAManager: teams[2].username,
-        teamAScore: 0,
-        teamAPlayerPoints: {},
-        teamBId: teams[3].id,
-        teamBName: teams[3].name,
-        teamBManager: teams[3].username,
-        teamBScore: 0,
-        teamBPlayerPoints: {},
-        status: 'Upcoming'
-      });
-
-      // Gameweek 2 (Swap)
-      listMatches.push({
-        id: `m-gw2-1-${leagueId}`,
-        leagueId,
-        gameweek: 2,
-        teamAId: teams[0].id,
-        teamAName: teams[0].name,
-        teamAManager: teams[0].username,
-        teamAScore: 0,
-        teamAPlayerPoints: {},
-        teamBId: teams[2].id,
-        teamBName: teams[2].name,
-        teamBManager: teams[2].username,
-        teamBScore: 0,
-        teamBPlayerPoints: {},
-        status: 'Upcoming'
-      });
-      listMatches.push({
-        id: `m-gw2-2-${leagueId}`,
-        leagueId,
-        gameweek: 2,
-        teamAId: teams[1].id,
-        teamAName: teams[1].name,
-        teamAManager: teams[1].username,
-        teamAScore: 0,
-        teamAPlayerPoints: {},
-        teamBId: teams[3].id,
-        teamBName: teams[3].name,
-        teamBManager: teams[3].username,
-        teamBScore: 0,
-        teamBPlayerPoints: {},
-        status: 'Upcoming'
-      });
-
-      // Gameweek 3 (Swap again)
-      listMatches.push({
-        id: `m-gw3-1-${leagueId}`,
-        leagueId,
-        gameweek: 3,
-        teamAId: teams[0].id,
-        teamAName: teams[0].name,
-        teamAManager: teams[0].username,
-        teamAScore: 0,
-        teamAPlayerPoints: {},
-        teamBId: teams[3].id,
-        teamBName: teams[3].name,
-        teamBManager: teams[3].username,
-        teamBScore: 0,
-        teamBPlayerPoints: {},
-        status: 'Upcoming'
-      });
-      listMatches.push({
-        id: `m-gw3-2-${leagueId}`,
-        leagueId,
-        gameweek: 3,
-        teamAId: teams[1].id,
-        teamAName: teams[1].name,
-        teamAManager: teams[1].username,
-        teamAScore: 0,
-        teamAPlayerPoints: {},
-        teamBId: teams[2].id,
-        teamBName: teams[2].name,
-        teamBManager: teams[2].username,
-        teamBScore: 0,
-        teamBPlayerPoints: {},
-        status: 'Upcoming'
-      });
-    }
   }
-
   matchups[leagueId] = listMatches;
 }
 
@@ -625,10 +588,17 @@ app.post('/api/auth/otp/verify', (req, res) => {
   });
 });
 
-// POST clear auth session
+// POST clear auth session and reset all platform data
 app.post('/api/auth/logout', (req, res) => {
-  currentUser.isAuthenticated = false;
-  res.json({ success: true, message: 'Logged out successfully.' });
+  resetPlatformState();
+  currentUser = {
+    userId: 'user-current',
+    username: 'Gaffer_Tejpal',
+    email: 'tejpalsingh.rathore@yudiz.com',
+    phone: '5551234567',
+    isAuthenticated: false
+  };
+  res.json({ success: true, message: 'Logged out successfully. All data reset to defaults.' });
 });
 
 // Legacy fallback handlers preserved for compatibility
@@ -1312,7 +1282,18 @@ app.post('/api/leagues/:id/waivers/process', (req, res) => {
 
 // GET Matchups list
 app.get('/api/leagues/:id/matchups', (req, res) => {
-  const fixtures = matchups[req.params.id] || [];
+  const leagueId = req.params.id;
+  let fixtures = matchups[leagueId] || [];
+  if (fixtures.length === 0) {
+    const league = leagues.find(l => l.id === leagueId);
+    if (league && league.teams.length >= 4) {
+      fixtures = buildStaticH2HMatchups(
+        leagueId,
+        league.teams.map(t => ({ id: t.id, name: t.name, username: t.username }))
+      );
+      matchups[leagueId] = fixtures;
+    }
+  }
   res.json(fixtures);
 });
 
@@ -1526,25 +1507,16 @@ app.post('/api/leagues/:id/simulate-gw', (req, res) => {
 
 // POST reset state back to fresh seeder
 app.post('/api/admin/reset', (req, res) => {
-  globalPlayers = JSON.parse(JSON.stringify(INITIAL_MOCK_PLAYERS));
-  leagues = [];
-  waiverClaims = [];
-  matchups = {};
-  draftSessions = {};
-  
-  notifications = [
-    {
-      id: 'notif-reset',
-      title: 'Database Reset Successfully',
-      message: 'All custom drafts, waiver logs, and standings have been reset back to seeded standards.',
-      type: 'System',
-      timestamp: new Date().toISOString(),
-      read: false
-    }
-  ];
-
-  seedDemoLeague();
-
+  resetPlatformState();
+  notifications.unshift({
+    id: 'notif-reset',
+    title: 'Database Reset Successfully',
+    message: 'All custom drafts, waiver logs, and standings have been reset back to seeded standards.',
+    type: 'System',
+    timestamp: new Date().toISOString(),
+    read: false
+  });
+  currentUser.isAuthenticated = false;
   res.json({ success: true, message: 'Platform data format reset to default initial seed.' });
 });
 

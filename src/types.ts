@@ -130,6 +130,29 @@ export interface WaiverClaim {
   failureReason?: string;
 }
 
+export interface FwwbBid {
+  id: string;
+  leagueId: string;
+  teamId: string;
+  teamName: string;
+  playerToDropId: string;
+  playerToDropName: string;
+  playerToAddId: string;
+  playerToAddName: string;
+  bidAmount: number;
+  status: 'Pending' | 'Successful' | 'Failed' | 'Canceled';
+  timestamp: string;
+  failureReason?: string;
+}
+
+export interface FwwbTeamBudget {
+  teamId: string;
+  teamName: string;
+  managerName: string;
+  totalBudget: number;
+  remaining: number;
+}
+
 export interface Matchup {
   id: string;
   leagueId: string;
@@ -147,6 +170,8 @@ export interface Matchup {
   teamBPlayerPoints: { [playerId: string]: number }; // Detailed players scores
   
   status: 'Upcoming' | 'Live' | 'Completed';
+  kickoffAt?: string;
+  venue?: string;
 }
 
 export interface Standings {

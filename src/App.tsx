@@ -1,18 +1,30 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Trophy, Users, Calendar, ArrowLeftRight, Search, Sparkles, 
-  Settings, Bell, Play, RotateCcw, AlertTriangle, ShieldCheck, 
-  HelpCircle, UserPlus, LogIn, ChevronRight, CheckCircle2, User, 
-  Plus, Minus, RefreshCw, Star, Info, ListFilter, Trash2, Send,
+  Bell, Play, RotateCcw, AlertTriangle, ShieldCheck, 
+  HelpCircle, LogIn, ChevronRight, CheckCircle2, User, 
+  Plus, Minus, RefreshCw, Star, Info, ListFilter, Trash2, Send, DollarSign, Wallet,
   Newspaper, Activity, ChevronLeft, Pause, Clock, Lock, X
 } from 'lucide-react';
 import { 
   Player, League, Team, DraftPick, DraftSession, 
-  WaiverClaim, Matchup, Standings, Notification, ScoringTemplate, 
+  WaiverClaim, FwwbBid, FwwbTeamBudget, Matchup, Standings, Notification, ScoringTemplate, 
   PlayerPosition, LeagueMember, DEFAULT_SCORING_TEMPLATE 
 } from './types';
 import DfsPlayerStatsModal from './components/DfsPlayerStatsModal';
 import DfsLineupConfirmationScreen from './components/DfsLineupConfirmationScreen';
+import TacticalSquadPitch from './components/TacticalSquadPitch';
+import PremierLeagueLogosBackdrop from './components/PremierLeagueLogosBackdrop';
+import {
+  STATIC_DROP_PLAYERS,
+  STATIC_ADD_PLAYERS,
+  STATIC_WAIVER_PRIORITY,
+  STATIC_SEED_CLAIMS,
+  buildStaticWaiverClaim,
+} from './data/staticWaiverData';
+import { buildStaticH2HMatchups, formatMatchupKickoff } from './data/staticMatchups';
+import { FWWB_MIN_BID, STATIC_FWWB_BUDGETS, STATIC_FWWB_SEED_BIDS, buildStaticFwwbBid } from './data/staticFwwbData';
+import * as staticStore from './services/staticStore';
 
 interface RealWorldFixture {
   id: string;
@@ -253,6 +265,8 @@ export interface FantasyContest {
   title: string;
   description: string;
   entryFee: string;
+  prizePool: string;
+  winningAmount: string;
   prizes: string;
   gameweek: number;
   participants: number;
@@ -269,7 +283,9 @@ export const INITIAL_CONTESTS: FantasyContest[] = [
     title: '🏆 Underdog Mega Championship [GW1]',
     description: 'A completed 10-round tournament draft where you assembled a high-power roster against BotAlpha, BotBeta, and others. Detailed daily score breakdown matches are live below!',
     entryFee: '$10',
-    prizes: '$5,000 Cash Prize Pool',
+    prizePool: '$5,000',
+    winningAmount: '$2,500',
+    prizes: 'Cash payouts · Top 3 paid',
     gameweek: 1,
     participants: 8,
     maxParticipants: 8,
@@ -294,7 +310,9 @@ export const INITIAL_CONTESTS: FantasyContest[] = [
     title: '🏆 Gaffer Gold Cup Challenge',
     description: 'Enlist your drafted roster in the main Opening Cup. Beat fellow managers to claim the early-season silverware crown!',
     entryFee: 'Free',
-    prizes: '500 XP + Winner Badge',
+    prizePool: '50,000 XP',
+    winningAmount: '500 XP + Winner Badge',
+    prizes: 'Bonus XP for top 10',
     gameweek: 1,
     participants: 142,
     maxParticipants: 500,
@@ -307,6 +325,8 @@ export const INITIAL_CONTESTS: FantasyContest[] = [
     title: '⚡ Weekend Survival Sprint',
     description: 'Avoid finishing in the bottom 25% of scoring managers in this gameweek. Failure results in relegation elimination.',
     entryFee: '50 Coins',
+    prizePool: '10,000 Coins',
+    winningAmount: '2,500 Coins',
     prizes: 'Double XP + Survival Streak +1',
     gameweek: 1,
     participants: 89,
@@ -320,7 +340,9 @@ export const INITIAL_CONTESTS: FantasyContest[] = [
     title: '📊 Midweek Playmaker Shootout',
     description: 'A tactical data-heavy shootout where playmaker midfielder assist contributions earn 1.5x points. Ideal for creative structures.',
     entryFee: 'Free',
-    prizes: 'Exclusive "Mastermind" Banner',
+    prizePool: '25,000 XP',
+    winningAmount: 'Mastermind Banner + 800 XP',
+    prizes: 'Exclusive cosmetic unlocks',
     gameweek: 2,
     participants: 45,
     maxParticipants: 100,
@@ -333,6 +355,8 @@ export const INITIAL_CONTESTS: FantasyContest[] = [
     title: '🛡️ Clean Sheet Vanguard Trophy',
     description: 'A defensive contest where clean sheet points achieved by defensive structures are boosted by additional custom points.',
     entryFee: '10 Coins',
+    prizePool: '5,000 Gaffer Gold',
+    winningAmount: '1,200 Gaffer Gold',
     prizes: '300 Gaffer Gold + Shield Customizer',
     gameweek: 1,
     participants: 112,
@@ -342,6 +366,37 @@ export const INITIAL_CONTESTS: FantasyContest[] = [
     status: 'Upcoming'
   }
 ];
+
+function ContestPrizeMetrics({ contest }: { contest: FantasyContest }) {
+  const pool = contest.prizePool ?? contest.prizes;
+  const win = contest.winningAmount ?? '—';
+  return (
+    <div className="grid grid-cols-2 gap-2 pt-2 text-[10px] border-t border-white/5">
+      <div className="flex flex-col min-w-0">
+        <span className="text-slate-500 font-semibold uppercase tracking-wide">Prize Pool</span>
+        <span className="text-brand-neon font-black font-mono text-sm truncate">{pool}</span>
+      </div>
+      <div className="flex flex-col text-right min-w-0">
+        <span className="text-slate-500 font-semibold uppercase tracking-wide">Winning Amount</span>
+        <span className="text-amber-300 font-black font-mono text-sm truncate">{win}</span>
+      </div>
+      {contest.prizes && contest.prizePool && (
+        <div className="col-span-2 flex flex-col border-t border-white/5 pt-1.5 min-w-0">
+          <span className="text-slate-500 font-semibold uppercase tracking-wide">Bonus Rewards</span>
+          <span className="text-slate-400 font-medium truncate">{contest.prizes}</span>
+        </div>
+      )}
+      <div className="flex flex-col">
+        <span className="text-slate-500 font-semibold uppercase tracking-wide">Capacity</span>
+        <span className="text-slate-300 font-mono">{contest.participants} / {contest.maxParticipants}</span>
+      </div>
+      <div className="flex flex-col text-right">
+        <span className="text-slate-500 font-semibold uppercase tracking-wide">Entry Fee</span>
+        <span className="text-slate-300 font-bold">{contest.entryFee}</span>
+      </div>
+    </div>
+  );
+}
 
 export interface DfsNflPlayer {
   id: string;
@@ -1145,7 +1200,7 @@ export const DFS_NFL_POOL: DfsNflPlayer[] = [
 
 export default function App() {
   // Page Navigation Tabs & State
-  const [currentTab, setCurrentTab] = useState<'dashboard' | 'draft-room' | 'my-squad' | 'waivers' | 'players' | 'matchups' | 'admin'>('dashboard');
+  const [currentTab, setCurrentTab] = useState<'dashboard' | 'draft-room' | 'my-squad' | 'waivers' | 'players' | 'matchups'>('dashboard');
   const [userProfile, setUserProfile] = useState<{ userId: string; username: string; email: string; phone?: string } | null>(null);
 
   // Authentication & OTP State Configuration
@@ -1179,9 +1234,18 @@ export default function App() {
   const [draftPositionFilter, setDraftPositionFilter] = useState<PlayerPosition | 'ALL'>('ALL');
 
   // Waiver Claim state
+  const [waiverModule, setWaiverModule] = useState<'priority' | 'fwwb'>('priority');
   const [waiverInfo, setWaiverInfo] = useState<{ claims: WaiverClaim[]; teamPriorityList: any[] }>({ claims: [], teamPriorityList: [] });
+  const [fwwbInfo, setFwwbInfo] = useState<{
+    budgets: FwwbTeamBudget[];
+    bids: FwwbBid[];
+    myRemaining: number;
+    startingBudget: number;
+    minBid: number;
+  }>({ budgets: [], bids: [], myRemaining: 100, startingBudget: 100, minBid: FWWB_MIN_BID });
   const [selectedDropPlayer, setSelectedDropPlayer] = useState<Player | null>(null);
   const [selectedAddPlayer, setSelectedAddPlayer] = useState<Player | null>(null);
+  const [fwwbBidAmount, setFwwbBidAmount] = useState(15);
 
   // Matchups & Fixtures
   const [matchupsList, setMatchupsList] = useState<Matchup[]>([]);
@@ -1233,7 +1297,7 @@ export default function App() {
   const [toasts, setToasts] = useState<{ id: string; message: string; type: 'success' | 'error' | 'info' }[]>([]);
   const [selectedPlayerDetail, setSelectedPlayerDetail] = useState<Player | null>(null);
   const [isWaiverModalOpen, setIsWaiverModalOpen] = useState(false);
-  const [adminSimulationLogs, setAdminSimulationLogs] = useState<string[]>([]);
+  const [isFwwbModalOpen, setIsFwwbModalOpen] = useState(false);
   const [isDraftTimerActive, setIsDraftTimerActive] = useState(false);
 
   // DFS Draft Arena interactive states
@@ -1271,6 +1335,14 @@ export default function App() {
 
   // Contest Listing state and registration handler
   const [contests, setContests] = useState<FantasyContest[]>(INITIAL_CONTESTS);
+
+  const featuredUpcomingContest = useMemo(
+    () =>
+      contests.find(
+        c => c.status !== 'Completed' && (c.status === 'Upcoming' || !c.joined)
+      ) ?? null,
+    [contests]
+  );
 
   const getSeatIndexForPick = (pickIndex: number): number => {
     const round = Math.floor(pickIndex / 4) + 1;
@@ -1607,119 +1679,159 @@ export default function App() {
 
   const API = {
     async fetchLeagues() {
-      try {
-        const r = await fetch('/api/leagues');
-        if (r.ok) {
-          const data = await r.json();
-          setLeagues(data);
-          let match = data.find((l: any) => l.id === selectedLeagueId);
-          if (!match && data.length > 0) {
-            match = data[0];
-            setSelectedLeagueId(match.id);
-          }
-          setActiveLeague(match || null);
-        }
-      } catch (e) {
-        addToast('Connection to backend failed. Using client fallbacks.', 'error');
+      const data = staticStore.getLeagues();
+      setLeagues(data);
+      let match = data.find((l: League) => l.id === selectedLeagueId);
+      if (!match && data.length > 0) {
+        match = data[0];
+        setSelectedLeagueId(match.id);
       }
+      setActiveLeague(match || null);
     },
 
     async fetchNotifications() {
-      try {
-        const r = await fetch('/api/notifications');
-        if (r.ok) {
-          const data = await r.json();
-          setNotifications(data);
-        }
-      } catch (e) {}
+      setNotifications(staticStore.getNotifications());
     },
 
     async fetchPlayers() {
-      try {
-        const url = `/api/players?search=${encodeURIComponent(searchQuery)}` + 
-                    (positionFilter !== 'ALL' ? `&position=${positionFilter}` : '');
-        const r = await fetch(url);
-        if (r.ok) {
-          const data = await r.json();
-          setPlayers(data);
-        }
-
-        // Fetch unfiltered players pool
-        const fullR = await fetch('/api/players');
-        if (fullR.ok) {
-          const fullData = await fullR.json();
-          setAllPlayersPool(fullData);
-        }
-      } catch (e) {}
+      setPlayers(staticStore.getPlayers(searchQuery, positionFilter));
+      setAllPlayersPool(staticStore.getAllPlayers());
     },
 
     async fetchRoster() {
       if (!selectedLeagueId) return;
-      try {
-        const r = await fetch(`/api/leagues/${selectedLeagueId}/team`);
-        if (r.ok) {
-          const data = await r.json();
-          setMyRoster(data);
-        }
-      } catch (e) {}
+      const data = staticStore.getRoster(selectedLeagueId);
+      if (data) setMyRoster(data);
     },
 
     async fetchDraftSession() {
       if (!selectedLeagueId) return;
-      try {
-        const r = await fetch(`/api/leagues/${selectedLeagueId}/draft`);
-        if (r.ok) {
-          const data = await r.json();
-          setDraftSession(data);
-        }
-      } catch (e) {}
+      const data = staticStore.getDraftSession(selectedLeagueId);
+      if (data) setDraftSession(data);
     },
 
     async fetchWaivers() {
       if (!selectedLeagueId) return;
-      try {
-        const r = await fetch(`/api/leagues/${selectedLeagueId}/waivers`);
-        if (r.ok) {
-          const data = await r.json();
-          setWaiverInfo(data);
-        }
-      } catch (e) {}
+      const data = staticStore.getWaivers(selectedLeagueId);
+      setWaiverInfo({
+        claims: data.claims?.length ? data.claims : STATIC_SEED_CLAIMS.filter(c => c.leagueId === selectedLeagueId),
+        teamPriorityList: data.teamPriorityList?.length ? data.teamPriorityList : STATIC_WAIVER_PRIORITY,
+      });
+    },
+
+    async fetchFwwb() {
+      if (!selectedLeagueId) return;
+      const data = staticStore.getFwwb(selectedLeagueId);
+      setFwwbInfo({
+        budgets: data.budgets?.length ? data.budgets : STATIC_FWWB_BUDGETS,
+        bids: data.bids?.length ? data.bids : STATIC_FWWB_SEED_BIDS.filter(b => b.leagueId === selectedLeagueId),
+        myRemaining: data.myRemaining ?? 100,
+        startingBudget: data.startingBudget ?? 100,
+        minBid: data.minBid ?? FWWB_MIN_BID,
+      });
     },
 
     async fetchMatchups() {
       if (!selectedLeagueId) return;
-      try {
-        const r = await fetch(`/api/leagues/${selectedLeagueId}/matchups`);
-        if (r.ok) {
-          const data = await r.json();
-          setMatchupsList(data);
-        }
-      } catch (e) {}
+      const data = staticStore.getMatchups(selectedLeagueId);
+      setMatchupsList(data.length > 0 ? data : buildStaticH2HMatchups(selectedLeagueId));
     },
 
     async fetchSession() {
-      try {
-        const r = await fetch('/api/auth/me');
-        if (r.ok) {
-          const data = await r.json();
-          setUserProfile(data);
-          return true;
-        }
-        setUserProfile(null);
-        return false;
-      } catch (e) {
-        setUserProfile(null);
-        return false;
+      const data = staticStore.getSession();
+      if (data) {
+        setUserProfile(data);
+        return true;
       }
-    }
+      setUserProfile(null);
+      return false;
+    },
+  };
+
+  const resetAppState = () => {
+    setCurrentTab('dashboard');
+    setUserProfile(null);
+    setAuthPhone('');
+    setAuthOtp('');
+    setAuthOtpSent(false);
+    setAuthMode('login');
+    setSignupUsername('');
+    setSignupTeamName('');
+    setSignupEmail('');
+    setIsLoadingAuth(false);
+    setLeagues([]);
+    setSelectedLeagueId('league-demo');
+    setActiveLeague(null);
+    setNotifications([]);
+    setPlayers([]);
+    setAllPlayersPool([]);
+    setSearchQuery('');
+    setPositionFilter('ALL');
+    setMyRoster(null);
+    setDraftSession(null);
+    setDraftPlayerSearch('');
+    setDraftPositionFilter('ALL');
+    setWaiverModule('priority');
+    setWaiverInfo({ claims: [], teamPriorityList: [] });
+    setFwwbInfo({ budgets: [], bids: [], myRemaining: 100, startingBudget: 100, minBid: FWWB_MIN_BID });
+    setSelectedDropPlayer(null);
+    setSelectedAddPlayer(null);
+    setFwwbBidAmount(15);
+    setMatchupsList([]);
+    setActiveGameweek(1);
+    setNewLeagueName('');
+    setNewLeagueSize(4);
+    setCustomGoalPoints(6);
+    setCustomAssistPoints(3);
+    setInviteCodeInput('');
+    setPredictions({});
+    setRwGameweek(1);
+    setSelectedNewsId(null);
+    setNewsCategoryFilter('all');
+    setNewsSearch('');
+    setToasts([]);
+    setSelectedPlayerDetail(null);
+    setIsWaiverModalOpen(false);
+    setIsFwwbModalOpen(false);
+    setIsDraftTimerActive(false);
+    setActiveContestDraft(null);
+    setDfsDraftTimer(10);
+    setDfsDraftPaused(false);
+    setDfsDraftSpeed(10);
+    setDfsConfirmPicks(false);
+    setDfsSearchText('');
+    setDfsPositionFilter('ALL');
+    setDfsRemoveUnavailable(false);
+    setDfsQueueIds([]);
+    setDfsActiveSeatIndex(3);
+    setDfsCountdown(null);
+    setSelectedDfsPlayer(null);
+    setDfsModalTab('stats');
+    setSubmittedDfsRoster(null);
+    setDfsContestFilter('upcoming');
+    setSelectedCompletedContest(null);
+    setSelectedDfsDay(1);
+    setActiveLeaderboardManager('Pooja Doshi');
+    setDfsDraftedPlayers([]);
+    setContests(JSON.parse(JSON.stringify(INITIAL_CONTESTS)));
+  };
+
+  const handleLogout = async () => {
+    staticStore.logout();
+    resetAppState();
+    setToasts([
+      { id: `toast-logout-${Date.now()}`, message: 'Logged out. Everything reset to default.', type: 'info' },
+    ]);
   };
 
   // Synchronize on parameters changed
   useEffect(() => {
-    API.fetchSession().then(() => {
-      API.fetchLeagues();
-      API.fetchNotifications();
-      API.fetchPlayers();
+    API.fetchSession().then((authenticated) => {
+      if (authenticated) {
+        API.fetchLeagues();
+        API.fetchNotifications();
+        API.fetchPlayers();
+      }
     });
   }, []);
 
@@ -1733,6 +1845,7 @@ export default function App() {
       API.fetchRoster();
       API.fetchDraftSession();
       API.fetchWaivers();
+      API.fetchFwwb();
       API.fetchMatchups();
     }
   }, [selectedLeagueId, leagues]);
@@ -1771,57 +1884,47 @@ export default function App() {
   // Core Actions Trigger Handlers
 
   const triggerAutoPick = async () => {
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/draft/auto-pick`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      if (r.ok) {
-        addToast('Draft Picker Timer limit reached! Autopicked top squad choice.', 'info');
-        API.fetchLeagues();
-        API.fetchDraftSession();
-      }
-    } catch(e) {}
+    const result = staticStore.autoDraftPick(selectedLeagueId);
+    if ('error' in result && result.error) {
+      addToast(result.error, 'error');
+      return;
+    }
+    addToast('Autopicked top available player.', 'info');
+    API.fetchLeagues();
+    API.fetchDraftSession();
   };
 
   const handleStartDraft = async () => {
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/draft/start`, {
-        method: 'POST'
-      });
-      if (r.ok) {
-        addToast('Live snake draft started! Draft picks are ready.', 'success');
-        API.fetchLeagues();
-        API.fetchDraftSession();
-        setCurrentTab('draft-room');
-      } else {
-        const err = await r.json();
-        addToast(err.error || 'Failed to start draft', 'error');
-      }
-    } catch(e) {}
+    setCurrentTab('draft-room');
+    if (!selectedLeagueId) {
+      addToast('Select a league to enter the draft room.', 'error');
+      return;
+    }
+    const result = staticStore.startDraft(selectedLeagueId);
+    if ('error' in result && result.error) {
+      addToast(result.error, 'error');
+      return;
+    }
+    addToast('Live snake draft started!', 'success');
+    API.fetchLeagues();
+    API.fetchDraftSession();
   };
 
   const handleDraftPick = async (playerId: string) => {
     if (!draftSession || !myRoster?.team) return;
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/draft/pick`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teamId: draftSession.nextPickerId || myRoster.team.id,
-          playerId
-        })
-      });
-      if (r.ok) {
-        addToast('Player picked successfully!', 'success');
-        API.fetchLeagues();
-        API.fetchDraftSession();
-        API.fetchRoster();
-      } else {
-        const err = await r.json();
-        addToast(err.error || 'Pick denied', 'error');
-      }
-    } catch(e) {}
+    const result = staticStore.executeDraftPick(
+      selectedLeagueId,
+      draftSession.nextPickerId || myRoster.team.id,
+      playerId
+    );
+    if (!result.success) {
+      addToast(result.message || 'Pick denied', 'error');
+      return;
+    }
+    addToast('Player picked successfully!', 'success');
+    API.fetchLeagues();
+    API.fetchDraftSession();
+    API.fetchRoster();
   };
 
   const handleCreateLeague = async (e: React.FormEvent) => {
@@ -1830,69 +1933,45 @@ export default function App() {
       addToast('Please specify a league name', 'error');
       return;
     }
-    try {
-      const r = await fetch('/api/leagues', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newLeagueName,
-          maxTeams: newLeagueSize,
-          goalPoints: customGoalPoints,
-          assistPoints: customAssistPoints
-        })
-      });
-      if (r.ok) {
-        const created = await r.json();
-        addToast(`Successfully created "${created.name}"!`, 'success');
-        setLeagues(prev => [...prev, created]);
-        setSelectedLeagueId(created.id);
-        setNewLeagueName('');
-        // Toggle view
-        setCurrentTab('dashboard');
-      }
-    } catch(e) {}
+    const created = staticStore.createLeague({
+      name: newLeagueName,
+      maxTeams: newLeagueSize,
+      goalPoints: customGoalPoints,
+      assistPoints: customAssistPoints,
+    });
+    addToast(`Successfully created "${created.name}"!`, 'success');
+    setLeagues(prev => [...prev, created]);
+    setSelectedLeagueId(created.id);
+    setNewLeagueName('');
+    setCurrentTab('dashboard');
+    API.fetchLeagues();
   };
 
   const handleJoinByCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteCodeInput.trim()) return;
-    try {
-      const r = await fetch('/api/leagues/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: inviteCodeInput })
-      });
-      if (r.ok) {
-        const joined = await r.json();
-        addToast(`Success! Joined "${joined.name}" draft pool`, 'success');
-        setLeagues(prev => {
-          if (prev.find(l => l.id === joined.id)) {
-            return prev.map(l => l.id === joined.id ? joined : l);
-          }
-          return [...prev, joined];
-        });
-        setSelectedLeagueId(joined.id);
-        setInviteCodeInput('');
-      } else {
-        const err = await r.json();
-        addToast(err.error || 'Error joining league', 'error');
-      }
-    } catch(e) {}
+    const joined = staticStore.joinLeague(inviteCodeInput);
+    if ('error' in joined) {
+      addToast(joined.error, 'error');
+      return;
+    }
+    addToast(`Success! Joined "${joined.name}" draft pool`, 'success');
+    setLeagues(prev => (prev.find(l => l.id === joined.id) ? prev.map(l => (l.id === joined.id ? joined : l)) : [...prev, joined]));
+    setSelectedLeagueId(joined.id);
+    setInviteCodeInput('');
+    API.fetchLeagues();
   };
 
   const handleFillWithBots = async () => {
     if (!selectedLeagueId) return;
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/members/bot`, {
-        method: 'POST'
-      });
-      if (r.ok) {
-        const updated = await r.json();
-        addToast('Autofilled remaining team slots with expert CPU manager bots!', 'success');
-        setLeagues(prev => prev.map(l => l.id === updated.id ? updated : l));
-        setActiveLeague(updated);
-      }
-    } catch (e) {}
+    const updated = staticStore.fillWithBots(selectedLeagueId);
+    if ('error' in updated) {
+      addToast(updated.error, 'error');
+      return;
+    }
+    addToast('Autofilled remaining team slots with CPU bots!', 'success');
+    setLeagues(prev => prev.map(l => (l.id === updated.id ? updated : l)));
+    setActiveLeague(updated);
   };
 
   // Lineup manager state swaps
@@ -1920,48 +1999,36 @@ export default function App() {
       newBench.push(playerToMoveId);
     }
 
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/team/lineup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activePlayerIds: newActive,
-          benchPlayerIds: newBench
-        })
-      });
-      if (r.ok) {
-        addToast('Tactical team layout saved.', 'success');
-        API.fetchRoster();
-      }
-    } catch(e) {}
+    const result = staticStore.updateLineup(selectedLeagueId, {
+      activePlayerIds: newActive,
+      benchPlayerIds: newBench,
+    });
+    if ('error' in result && result.error) {
+      addToast(result.error, 'error');
+      return;
+    }
+    addToast('Tactical team layout saved.', 'success');
+    API.fetchRoster();
   };
 
   const handleSetCaptain = async (captainId: string) => {
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/team/captain`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ captainId })
-      });
-      if (r.ok) {
-        addToast('Captain band reassigned.', 'success');
-        API.fetchRoster();
-      }
-    } catch(e) {}
+    const result = staticStore.setCaptain(selectedLeagueId, captainId);
+    if ('error' in result && result.error) {
+      addToast(result.error, 'error');
+      return;
+    }
+    addToast('Captain band reassigned.', 'success');
+    API.fetchRoster();
   };
 
   const handleSetViceCaptain = async (viceCaptainId: string) => {
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/team/captain`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ viceCaptainId })
-      });
-      if (r.ok) {
-        addToast('Vice-Captain band reassigned.', 'success');
-        API.fetchRoster();
-      }
-    } catch(e) {}
+    const result = staticStore.setCaptain(selectedLeagueId, undefined, viceCaptainId);
+    if ('error' in result && result.error) {
+      addToast(result.error, 'error');
+      return;
+    }
+    addToast('Vice-Captain band reassigned.', 'success');
+    API.fetchRoster();
   };
 
   const handleAutoOptimizeLineup = async () => {
@@ -1978,128 +2045,191 @@ export default function App() {
     const benchIds = sorted.slice(8, 11).map(p => p.id);
     const topCapId = sorted[0]?.id;
 
-    try {
-      const r1 = await fetch(`/api/leagues/${selectedLeagueId}/team/lineup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activePlayerIds: best8Ids,
-          benchPlayerIds: benchIds
-        })
-      });
-      if (topCapId) {
-        await fetch(`/api/leagues/${selectedLeagueId}/team/captain`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ captainId: topCapId })
-        });
-      }
-      if (r1.ok) {
-        addToast('Lineup & Captain automated via Scout AI optimizer!', 'success');
-        API.fetchRoster();
-      }
-    } catch (err) {
-      addToast('Error automatically optimizing lineup.', 'error');
+    const r1 = staticStore.updateLineup(selectedLeagueId, {
+      activePlayerIds: best8Ids,
+      benchPlayerIds: benchIds,
+    });
+    if (topCapId) staticStore.setCaptain(selectedLeagueId, topCapId);
+    if ('error' in r1 && r1.error) {
+      addToast(r1.error, 'error');
+      return;
     }
+    addToast('Lineup & Captain automated via Scout AI optimizer!', 'success');
+    API.fetchRoster();
   };
+
+  const getWaiverDropPlayers = (): Player[] => {
+    const fromRoster = [...(myRoster?.active ?? []), ...(myRoster?.bench ?? [])];
+    return fromRoster.length > 0 ? fromRoster : STATIC_DROP_PLAYERS;
+  };
+
+  const getWaiverAddPlayers = (): Player[] => {
+    const ownedIds = new Set<string>();
+    activeLeague?.teams.forEach(t => {
+      t.activePlayerIds.forEach(id => ownedIds.add(id));
+      t.benchPlayerIds.forEach(id => ownedIds.add(id));
+    });
+    const fromPool = allPlayersPool.filter(p => !ownedIds.has(p.id));
+    return fromPool.length > 0 ? fromPool : STATIC_ADD_PLAYERS;
+  };
+
+  const openWaiverModal = () => {
+    const drops = getWaiverDropPlayers();
+    const adds = getWaiverAddPlayers();
+    setSelectedDropPlayer(drops[0] ?? null);
+    setSelectedAddPlayer(adds[0] ?? null);
+    setIsWaiverModalOpen(true);
+  };
+
+  const openFwwbModal = () => {
+    const drops = getWaiverDropPlayers();
+    const adds = getWaiverAddPlayers();
+    setSelectedDropPlayer(drops[0] ?? null);
+    setSelectedAddPlayer(adds[0] ?? null);
+    setFwwbBidAmount(Math.min(15, fwwbInfo.myRemaining));
+    setIsFwwbModalOpen(true);
+  };
+
+  const handleFwwbProposal = async () => {
+    if (!selectedDropPlayer || !selectedAddPlayer) {
+      addToast('Select drop and add players for your FWWB bid.', 'error');
+      return;
+    }
+    if (fwwbBidAmount < fwwbInfo.minBid) {
+      addToast(`Minimum FWWB bid is $${fwwbInfo.minBid}.`, 'error');
+      return;
+    }
+    if (fwwbBidAmount > fwwbInfo.myRemaining) {
+      addToast(`Bid exceeds remaining budget ($${fwwbInfo.myRemaining}).`, 'error');
+      return;
+    }
+    const teamName = myRoster?.team?.name || 'Tejpal FC';
+    const result = staticStore.submitFwwbBid(
+      selectedLeagueId,
+      selectedDropPlayer.id,
+      selectedAddPlayer.id,
+      fwwbBidAmount
+    );
+    if ('error' in result && result.error) {
+      setFwwbInfo(prev => ({
+        ...prev,
+        bids: [
+          ...prev.bids.filter(b => b.id !== `fwwb-${Date.now()}`),
+          buildStaticFwwbBid(
+            selectedDropPlayer.id,
+            selectedDropPlayer.name,
+            selectedAddPlayer.id,
+            selectedAddPlayer.name,
+            fwwbBidAmount,
+            selectedLeagueId,
+            teamName
+          ),
+        ],
+      }));
+      addToast(result.error, 'info');
+      return;
+    }
+    addToast(`FWWB bid placed: $${fwwbBidAmount} on ${selectedAddPlayer.name}`, 'success');
+    setSelectedAddPlayer(null);
+    setSelectedDropPlayer(null);
+    setIsFwwbModalOpen(false);
+    API.fetchFwwb();
+  };
+
+  const handleDeleteFwwbBid = async (bidId: string) => {
+    setFwwbInfo(prev => ({ ...prev, bids: prev.bids.filter(b => b.id !== bidId) }));
+    staticStore.deleteFwwbBid(selectedLeagueId, bidId);
+    addToast('FWWB bid canceled.', 'info');
+    API.fetchFwwb();
+  };
+
+  const handleProcessFwwb = async () => {
+    const data = staticStore.processFwwbBids(selectedLeagueId);
+    if ('error' in data && data.error) {
+      addToast(data.error, 'error');
+      return;
+    }
+    addToast(`FWWB auction processed — ${data.processedCount ?? 0} award(s).`, 'success');
+    API.fetchFwwb();
+    API.fetchRoster();
+    API.fetchLeagues();
+  };
+
+  const myFwwbBids = fwwbInfo.bids.filter(
+    b => b.teamName === (myRoster?.team?.name || 'Tejpal FC') || b.teamId === 'team-user'
+  );
 
   const handleWaiverProposal = async () => {
     if (!selectedDropPlayer || !selectedAddPlayer) {
       addToast('Select both a player to release and a free agent to acquire.', 'error');
       return;
     }
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/waivers/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playerToDropId: selectedDropPlayer.id,
-          playerToAddId: selectedAddPlayer.id
-        })
-      });
-      if (r.ok) {
-        addToast('Reverse-order waiver claim requested!', 'success');
-        setSelectedAddPlayer(null);
-        setSelectedDropPlayer(null);
-        setIsWaiverModalOpen(false);
-        API.fetchWaivers();
-      } else {
-        const err = await r.json();
-        addToast(err.error || 'Claim rejected', 'error');
-      }
-    } catch(e) {}
+
+    const teamName = myRoster?.team?.name || 'Tejpal FC';
+    const priority =
+      waiverInfo.teamPriorityList.find((t: { teamName: string }) => t.teamName === teamName)?.priority ?? 2;
+
+    const applyLocalClaim = (claim: WaiverClaim) => {
+      setWaiverInfo(prev => ({
+        ...prev,
+        claims: [...prev.claims.filter(c => c.id !== claim.id), claim],
+      }));
+      setSelectedAddPlayer(null);
+      setSelectedDropPlayer(null);
+      setIsWaiverModalOpen(false);
+    };
+
+    const newClaim = staticStore.submitWaiver(
+      selectedLeagueId,
+      selectedDropPlayer.id,
+      selectedAddPlayer.id
+    );
+    if ('error' in newClaim) {
+      applyLocalClaim(
+        buildStaticWaiverClaim(selectedDropPlayer, selectedAddPlayer, selectedLeagueId, teamName, priority)
+      );
+      addToast(newClaim.error, 'info');
+      return;
+    }
+    applyLocalClaim(newClaim);
+    addToast('Waiver claim submitted!', 'success');
+    API.fetchWaivers();
+    API.fetchRoster();
   };
 
   const handleDeleteWaiverClaim = async (claimId: string) => {
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/waivers/${claimId}`, {
-        method: 'DELETE'
-      });
-      if (r.ok) {
-        addToast('Waiver proposal removed.', 'info');
-        API.fetchWaivers();
-      }
-    } catch(e) {}
+    setWaiverInfo(prev => ({
+      ...prev,
+      claims: prev.claims.filter(c => c.id !== claimId),
+    }));
+    staticStore.deleteWaiver(selectedLeagueId, claimId);
+    addToast('Waiver proposal removed.', 'info');
+    API.fetchWaivers();
   };
 
   const handleProcessWaivers = async () => {
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/waivers/process`, {
-        method: 'POST'
-      });
-      if (r.ok) {
-        const data = await r.json();
-        addToast(`Processed waiver claims. Result logs updated!`, 'success');
-        if (data.logs) {
-          setAdminSimulationLogs(prev => [...prev, ...data.logs]);
-        }
-        API.fetchWaivers();
-        API.fetchRoster();
-        API.fetchLeagues();
-      }
-    } catch(e) {}
+    const data = staticStore.processWaivers(selectedLeagueId);
+    addToast(`Processed ${data.processedCount ?? 0} waiver claim(s)!`, 'success');
+    API.fetchWaivers();
+    API.fetchRoster();
+    API.fetchLeagues();
   };
 
   const handleSimulateGameweek = async () => {
-    try {
-      const r = await fetch(`/api/leagues/${selectedLeagueId}/simulate-gw`, {
-        method: 'POST'
-      });
-      if (r.ok) {
-        const data = await r.json();
-        addToast(`Gameweek simulation complete! Dynamic Standings updated.`, 'success');
-        if (data.logs) {
-          setAdminSimulationLogs(prev => [...prev, ...data.logs]);
-        }
-        API.fetchLeagues();
-        API.fetchMatchups();
-        API.fetchRoster();
-      } else {
-        const err = await r.json();
-        addToast(err.error || 'Failed to simulation', 'error');
-      }
-    } catch(e) {}
-  };
-
-  const handleResetSimulator = async () => {
-    if (!confirm('Are you sure you want to reset all league databases, draft picks, and waivers?')) return;
-    try {
-      const r = await fetch('/api/admin/reset', { method: 'POST' });
-      if (r.ok) {
-        addToast('Platform wiped back to seeded exhibition status!', 'success');
-        setAdminSimulationLogs(['System memory cleared. Exhibitions initialized.']);
-        API.fetchLeagues();
-        API.fetchNotifications();
-        API.fetchPlayers();
-      }
-    } catch(e) {}
+    const data = staticStore.simulateGameweek(selectedLeagueId);
+    if ('error' in data && data.error) {
+      addToast(data.error, 'error');
+      return;
+    }
+    addToast('Gameweek simulation complete!', 'success');
+    API.fetchLeagues();
+    API.fetchMatchups();
+    API.fetchRoster();
   };
 
   const markNotificationRead = async (id: string) => {
-    try {
-      await fetch(`/api/notifications/${id}/read`, { method: 'POST' });
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-    } catch(e) {}
+    staticStore.markNotificationRead(id);
+    setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: true } : n)));
   };
 
   // View Filter helpers
@@ -2277,24 +2407,14 @@ export default function App() {
                       }
 
                       setIsLoadingAuth(true);
-                      try {
-                        const response = await fetch('/api/auth/otp/send', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ phone: authPhone })
-                        });
-                        const data = await response.json();
-                        if (response.ok) {
-                          setAuthOtpSent(true);
-                          addToast(`OTP successfully sent! Enter the static verification code: 123456`, 'success');
-                        } else {
-                          addToast(data.error || 'Failed to dispatch code.', 'error');
-                        }
-                      } catch (err) {
-                        addToast('Communication error with authentication backend.', 'error');
-                      } finally {
-                        setIsLoadingAuth(false);
+                      const data = staticStore.sendOtp(authPhone);
+                      if ('error' in data && data.error) {
+                        addToast(data.error, 'error');
+                      } else {
+                        setAuthOtpSent(true);
+                        addToast('OTP sent! Enter verification code: 123456', 'success');
                       }
+                      setIsLoadingAuth(false);
                     }}
                     className="space-y-4"
                   >
@@ -2413,26 +2533,17 @@ export default function App() {
                         type="button"
                         onClick={async () => {
                           setIsLoadingAuth(true);
-                          try {
-                            const rVerify = await fetch('/api/auth/otp/verify', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                phone: '5551234567',
-                                otp: '123456',
-                                username: 'Gaffer_Tejpal',
-                                teamName: 'Tejpal FC'
-                              })
-                            });
-                            const body = await rVerify.json();
-                            if (rVerify.ok) {
-                              addToast('Welcome back, Gaffer_Tejpal! Setting up squad systems...', 'success');
-                              await API.fetchSession();
-                              await API.fetchLeagues();
-                              await API.fetchRoster();
-                              await API.fetchMatchups();
-                            }
-                          } catch (err) {}
+                          const body = staticStore.verifyOtp('5551234567', '123456', 'Gaffer_Tejpal', undefined, 'Tejpal FC');
+                          if ('error' in body && body.error) {
+                            addToast(body.error, 'error');
+                          } else if (body.user) {
+                            setUserProfile(body.user);
+                            addToast('Welcome back, Gaffer_Tejpal!', 'success');
+                            await API.fetchSession();
+                            await API.fetchLeagues();
+                            await API.fetchRoster();
+                            await API.fetchMatchups();
+                          }
                           setIsLoadingAuth(false);
                         }}
                         className="text-xs text-brand-purple hover:text-purple-300 underline font-semibold transition"
@@ -2453,42 +2564,27 @@ export default function App() {
                     }
 
                     setIsLoadingAuth(true);
-                    try {
-                      // Perform verify call
-                      const response = await fetch('/api/auth/otp/verify', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          phone: authPhone,
-                          otp: authOtp,
-                          username: authMode === 'signup' ? signupUsername : 'Gaffer_Tejpal',
-                          teamName: authMode === 'signup' ? signupTeamName : 'Tejpal FC',
-                          email: authMode === 'signup' ? signupEmail : 'tejpalsingh.rathore@yudiz.com'
-                        })
-                      });
-                      const data = await response.json();
-                      if (response.ok) {
-                        addToast(`Identity challenge validated! Welcome to unique draft fantasy.`, 'success');
-                        
-                        setUserProfile(data.user);
-                        
-                        await API.fetchSession();
-                        await API.fetchLeagues();
-                        await API.fetchRoster();
-                        await API.fetchMatchups();
-                        
-                        // Reset forms
-                        setAuthOtpSent(false);
-                        setAuthOtp('');
-                        setAuthPhone('');
-                      } else {
-                        addToast(data.error || 'Verification invalid.', 'error');
-                      }
-                    } catch (e) {
-                      addToast('Failed to communicate verification checks.', 'error');
-                    } finally {
-                      setIsLoadingAuth(false);
+                    const data = staticStore.verifyOtp(
+                      authPhone,
+                      authOtp,
+                      authMode === 'signup' ? signupUsername : 'Gaffer_Tejpal',
+                      authMode === 'signup' ? signupEmail : 'tejpalsingh.rathore@yudiz.com',
+                      authMode === 'signup' ? signupTeamName : 'Tejpal FC'
+                    );
+                    if ('error' in data && data.error) {
+                      addToast(data.error, 'error');
+                    } else if (data.user) {
+                      addToast('Identity validated! Welcome to draft fantasy.', 'success');
+                      setUserProfile(data.user);
+                      await API.fetchSession();
+                      await API.fetchLeagues();
+                      await API.fetchRoster();
+                      await API.fetchMatchups();
+                      setAuthOtpSent(false);
+                      setAuthOtp('');
+                      setAuthPhone('');
                     }
+                    setIsLoadingAuth(false);
                   }}
                   className="space-y-6 animate-fadeIn"
                 >
@@ -2639,13 +2735,7 @@ export default function App() {
               </div>
               <button 
                 id="header-logout-btn"
-                onClick={async () => {
-                  try {
-                    await fetch('/api/auth/logout', { method: 'POST' });
-                    setUserProfile(null);
-                    addToast('Logged out of manager session.', 'info');
-                  } catch (e) {}
-                }}
+                onClick={handleLogout}
                 className="px-2.5 py-1.5 text-xs bg-red-950/40 text-red-400 hover:text-white border border-red-500/20 rounded-lg hover:bg-red-500/20 transition font-bold"
               >
                 Logout
@@ -2746,42 +2836,6 @@ export default function App() {
             <span>Head-to-Head Matches</span>
           </button>
 
-          <button 
-            id="tab-btn-admin"
-            onClick={() => setCurrentTab('admin')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition ${
-              currentTab === 'admin' ? 'bg-white/10 text-white border-l-4 border-brand-neon' : 'text-slate-400 hover:bg-white/5 hover:text-white'
-            }`}
-          >
-            <Settings className="w-5 h-5 flex-shrink-0" />
-            <span>Admin Controls</span>
-          </button>
-
-          {/* QUICK START STAT BOARD */}
-          <div className="mt-8 pt-6 border-t border-white/5 text-xs text-slate-400 space-y-2">
-            <span className="font-semibold uppercase tracking-wider text-[11px] text-slate-400">Rules Settings Summary</span>
-            <div className="bg-[#111827]/40 p-2.5 rounded-lg space-y-1">
-              <div className="flex justify-between">
-                <span>Roster Size:</span>
-                <span className="text-white">11 Players</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Active Squad:</span>
-                <span className="text-white">8 Players (e.g. 4-4-2)</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Reserves Bench:</span>
-                <span className="text-white">3 Bench</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Draft Type:</span>
-                <span className="text-[#22c55e] font-semibold">Snake Draft</span>
-              </div>
-            </div>
-            <p className="text-[10px] leading-relaxed text-slate-500">
-              *Once a manager drafts a player, they belong exclusively to that roster. Other managers cannot draft or transfer them, except through dynamic waivers.
-            </p>
-          </div>
         </aside>
 
         {/* MAIN PANEL CONTENT AREA */}
@@ -2793,11 +2847,11 @@ export default function App() {
               
               {/* LEAGUE BANNER AND RECRUITING (HERO SECTION WITH INTEGRATED UPCOMING DRAFT SIDE) */}
               <div className="relative rounded-2xl overflow-hidden bg-gradient-to-r from-[#1E1B4B]/80 via-[#111827] to-[#030712] p-6 lg:p-8 border border-brand-purple/20 shadow-2xl">
-                <div className="absolute right-0 top-0 bottom-0 w-1/2 opacity-20 pointer-events-none bg-[radial-gradient(circle_at_right,_var(--tw-gradient-stops))] from-brand-neon via-[#a855f7]/30 to-transparent" />
-                
-                <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-8">
-                  {/* LEFT: LEAGUE SUMMARY */}
-                  <div className="lg:col-span-7 flex flex-col justify-between space-y-4">
+                <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8">
+                  {/* LEFT: LEAGUE SUMMARY — PL crests watermark lives here only */}
+                  <div className="lg:col-span-7 relative overflow-hidden rounded-xl flex flex-col justify-between space-y-4 min-h-[220px]">
+                    <PremierLeagueLogosBackdrop />
+                    <div className="relative z-10 flex flex-col justify-between space-y-4 flex-1">
                     <div>
                       <span className="px-3 py-1 bg-brand-neon/15 text-brand-neon text-xs font-semibold rounded-full uppercase tracking-wider mb-3 inline-block">
                         🛡️ Gaffer Draft Arena
@@ -2826,71 +2880,109 @@ export default function App() {
                         <span>Ruleset: <strong className="text-white">FPL Serpentine Draft</strong></span>
                       </div>
                     </div>
+                    </div>
                   </div>
 
-                  {/* RIGHT: THE PROMINENT UPCOMING DRAFT SECTION */}
+                  {/* RIGHT: FEATURED UPCOMING CONTEST */}
                   <div className="lg:col-span-5 bg-black/50 border border-white/10 p-5 rounded-2xl space-y-4 relative overflow-hidden backdrop-blur-md shadow-2xl">
                     <div className="absolute top-0 right-0 p-3">
-                      <span className={`h-2.5 w-2.5 rounded-full block animate-pulse ${
-                        activeLeague?.status === 'Lobby' ? 'bg-amber-400' : 'bg-brand-neon'
-                      }`} />
+                      <span className="h-2.5 w-2.5 rounded-full block animate-pulse bg-amber-400" />
                     </div>
 
-                    <div>
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest block mb-1">
-                        Countdown to Live Round
-                      </span>
-                      <h4 className="font-display font-bold text-base text-white flex items-center gap-2">
-                        📅 Upcoming Serpentine Draft
-                      </h4>
-                    </div>
-
-                    {/* LIVE TICKING TIMING SCREEN */}
-                    <div className="bg-[#111827] px-4 py-3.5 rounded-xl border border-white/5 flex items-center justify-between">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Draft Commences In</span>
-                        <strong className="text-xl font-mono font-black text-brand-neon tracking-wide mt-0.5">
-                          {activeLeague?.status === 'Lobby' ? draftCountdown : 'Completed / Active'}
-                        </strong>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[10px] text-slate-400 block font-semibold">Scheduled Kickoff</span>
-                        <span className="text-xs font-mono font-bold text-brand-purple mt-0.5 block">12:30 BST • May 23</span>
-                      </div>
-                    </div>
-
-                    {/* ACTIVE LOBBY SPECIFICS */}
-                    {activeLeague?.status === 'Lobby' ? (
-                      <div className="space-y-3">
-                        <div className="pt-2">
-                          <button 
-                            type="button"
-                            onClick={handleStartDraft}
-                            disabled={activeLeague.members.length < 2}
-                            title={activeLeague.members.length < 2 ? "Requires at least 2 managers in the lobby to deploy draft grid" : "Commence serpentine draft rounds!"}
-                            className="w-full bg-brand-neon hover:bg-emerald-400 disabled:opacity-40 disabled:pointer-events-none text-black py-2.5 px-4 rounded-xl transition text-sm font-display font-black flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/20"
-                          >
-                            <Play className="w-4 h-4 fill-black" />
-                            Start Live Draft 
-                          </button>
+                    {featuredUpcomingContest ? (
+                      <>
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest block mb-1">
+                            Countdown to Live Round
+                          </span>
+                          <h4 className="font-display font-bold text-base text-white flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-brand-neon flex-shrink-0" />
+                            <span className="line-clamp-2">{featuredUpcomingContest.title}</span>
+                          </h4>
+                          <p className="text-[10px] text-slate-500 mt-1 line-clamp-2">
+                            {featuredUpcomingContest.description}
+                          </p>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2.5">
-                        <div className="bg-[#22c55e]/10 p-3 rounded-xl border border-[#22c55e]/30 flex items-center gap-3">
-                          <CheckCircle2 className="w-5 h-5 text-[#22c55e]" />
+
+                        <div className="bg-[#111827] px-4 py-3.5 rounded-xl border border-white/5 flex items-center justify-between gap-3">
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">
+                              Draft Commences In
+                            </span>
+                            <strong className="text-xl font-mono font-black text-brand-neon tracking-wide mt-0.5">
+                              {draftCountdown}
+                            </strong>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-[10px] text-slate-400 block font-semibold">Scheduled Kickoff</span>
+                            <span className="text-xs font-mono font-bold text-brand-purple mt-0.5 block">
+                              12:30 BST • May 23
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                          <div className="bg-brand-neon/10 border border-brand-neon/25 rounded-lg px-2.5 py-2">
+                            <span className="text-slate-500 font-semibold uppercase block text-[9px]">Prize Pool</span>
+                            <span className="text-brand-neon font-black font-mono text-sm">
+                              {featuredUpcomingContest.prizePool ?? featuredUpcomingContest.prizes}
+                            </span>
+                          </div>
+                          <div className="bg-amber-500/10 border border-amber-500/25 rounded-lg px-2.5 py-2 text-right">
+                            <span className="text-slate-500 font-semibold uppercase block text-[9px]">Winning Amount</span>
+                            <span className="text-amber-300 font-black font-mono text-sm">
+                              {featuredUpcomingContest.winningAmount ?? '—'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-[10px]">
+                          <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-slate-300 font-semibold">
+                            {featuredUpcomingContest.tag}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">
+                            GW{featuredUpcomingContest.gameweek}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">
+                            {featuredUpcomingContest.participants}/{featuredUpcomingContest.maxParticipants} joined
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-slate-300 font-bold">
+                            {featuredUpcomingContest.entryFee}
+                          </span>
+                        </div>
+
+                        <div className="bg-amber-500/10 p-3 rounded-xl border border-amber-500/25 flex items-center gap-3">
+                          <Calendar className="w-5 h-5 text-amber-400 flex-shrink-0" />
                           <div>
-                            <div className="text-xs text-slate-400">Current Draft Status</div>
-                            <div className="text-sm font-bold text-brand-neon">League Live (Draft Complete)</div>
+                            <div className="text-xs text-slate-400">Contest Status</div>
+                            <div className="text-sm font-bold text-amber-300">
+                              {featuredUpcomingContest.joined ? 'Enlisted — Ready to Draft' : 'Upcoming — Open for Entry'}
+                            </div>
                           </div>
                         </div>
 
                         <button
                           type="button"
-                          onClick={() => setCurrentTab('my-squad')}
-                          className="w-full bg-brand-purple/20 hover:bg-brand-purple/30 border border-brand-purple/40 text-brand-purple text-xs font-bold py-2 rounded-xl transition"
+                          onClick={() => handleJoinContest(featuredUpcomingContest.id)}
+                          disabled={
+                            !featuredUpcomingContest.joined &&
+                            featuredUpcomingContest.participants >= featuredUpcomingContest.maxParticipants
+                          }
+                          className="w-full bg-brand-purple hover:bg-brand-purple/90 disabled:opacity-40 disabled:pointer-events-none text-white py-2.5 px-4 rounded-xl transition text-sm font-display font-black flex items-center justify-center gap-2 shadow-lg shadow-purple-950/30"
                         >
-                          Manage Squad Lineup & Transfers ➔
+                          <Play className="w-4 h-4 fill-white" />
+                          {featuredUpcomingContest.joined ? 'Resume Draft' : 'Join Draft'}
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <div className="py-8 text-center space-y-3">
+                        <p className="text-xs text-slate-400">No upcoming contests right now.</p>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentTab('draft-room')}
+                          className="text-xs font-bold text-brand-neon hover:underline"
+                        >
+                          Browse Draft Room
                         </button>
                       </div>
                     )}
@@ -3587,17 +3679,7 @@ export default function App() {
                                   </p>
                                 </div>
 
-                                {/* METRICS ROW */}
-                                <div className="grid grid-cols-2 gap-2 pt-2 text-[10px] border-t border-white/5">
-                                  <div className="flex flex-col">
-                                    <span className="text-slate-500 font-semibold uppercase">Prizes Pool</span>
-                                    <span className="text-brand-neon font-bold truncate">{contest.prizes}</span>
-                                  </div>
-                                  <div className="flex flex-col text-right">
-                                    <span className="text-slate-500 font-semibold uppercase">Capacity Joined</span>
-                                    <span className="text-slate-300 font-mono">{contest.participants} / {contest.maxParticipants}</span>
-                                  </div>
-                                </div>
+                                <ContestPrizeMetrics contest={contest} />
                               </div>
 
                               {/* FOOTER ACTIONS */}
@@ -3608,9 +3690,10 @@ export default function App() {
                                     <span className="text-brand-neon font-black font-sans">{contest.finalRoster?.length || 10} Stars</span>
                                   </div>
                                 ) : (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[10px] text-slate-500 font-medium font-mono">Fee:</span>
-                                    <span className="text-xs font-bold text-slate-300">{contest.entryFee}</span>
+                                  <div className="flex items-center gap-2 text-[10px] font-mono">
+                                    <span className="text-brand-neon font-bold">{contest.prizePool ?? contest.prizes}</span>
+                                    <span className="text-slate-600">·</span>
+                                    <span className="text-amber-300 font-bold">Win {contest.winningAmount ?? '—'}</span>
                                   </div>
                                 )}
 
@@ -3677,18 +3760,40 @@ export default function App() {
                       </div>
                     </form>
 
-                    <div className="bg-[#111827]/70 p-4 rounded-xl border border-white/5 flex flex-col justify-between">
-                      <div>
-                        <h4 className="font-semibold text-sm text-white mb-1">Create Private League</h4>
-                        <p className="text-xs text-slate-400">Configure snake draft rules up to 16 teams.</p>
+                    <form onSubmit={handleCreateLeague} className="bg-[#111827]/70 p-4 rounded-xl border border-white/5 space-y-3">
+                      <h4 className="font-semibold text-sm text-white">Create Private League</h4>
+                      <input
+                        type="text"
+                        placeholder="League name"
+                        value={newLeagueName}
+                        onChange={(e) => setNewLeagueName(e.target.value)}
+                        className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1.5 text-sm text-white placeholder-slate-500"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="number"
+                          min={4}
+                          max={16}
+                          value={newLeagueSize}
+                          onChange={(e) => setNewLeagueSize(Number(e.target.value))}
+                          className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white"
+                          title="Max teams"
+                        />
+                        <input
+                          type="number"
+                          value={customGoalPoints}
+                          onChange={(e) => setCustomGoalPoints(Number(e.target.value))}
+                          className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white"
+                          title="Goal points"
+                        />
                       </div>
-                      <button 
-                        onClick={() => setCurrentTab('admin')} 
-                        className="mt-3 w-full bg-brand-purple hover:bg-brand-purple/80 text-white font-semibold py-1.5 rounded text-xs transition"
+                      <button
+                        type="submit"
+                        className="w-full bg-brand-purple hover:bg-brand-purple/80 text-white font-semibold py-1.5 rounded text-xs transition"
                       >
-                        Configure & Create League ⚙️
+                        Create League
                       </button>
-                    </div>
+                    </form>
                   </div>
                 </div>
 
@@ -3746,6 +3851,7 @@ export default function App() {
                 <DfsLineupConfirmationScreen
                   submittedRoster={submittedDfsRoster}
                   userProfile={userProfile}
+                  onToast={(message, type) => addToast(message, type)}
                   onBack={() => {
                     setSubmittedDfsRoster(null);
                   }}
@@ -3803,10 +3909,10 @@ export default function App() {
                   </div>
                 ) : (
                   /* =================== DRAFT DFS ARENA VIEW =================== */
-                  <div className="space-y-6 text-slate-200" id="dfs-arena-view">
+                  <div className="space-y-3 text-slate-200 max-h-[calc(100vh-5.5rem)] overflow-hidden flex flex-col" id="dfs-arena-view">
                   
                   {/* TOURNAMENT SPEC/INFO BAR */}
-                  <div className="bg-[#0b0f19] px-4 py-3 rounded-2xl border border-white/10 flex flex-col md:flex-row items-center justify-between gap-4 shadow-2xl">
+                  <div className="bg-[#0b0f19] px-3 py-2 rounded-xl border border-white/10 flex flex-col md:flex-row items-center justify-between gap-2 shadow-lg shrink-0">
                     <div className="flex flex-wrap items-center gap-4 text-xs font-semibold">
                       {/* BACK BUTTON AND TITLE */}
                       <button 
@@ -3854,13 +3960,13 @@ export default function App() {
                   </div>
 
                   {/* DRAFT SEAT TRACKER BOARD WITH CLOCK DIAL */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch shrink-0">
                     
                     {/* TICK TICK COUNTDOWN SECTOR */}
-                    <div className="lg:col-span-2 bg-[#0b0f19] p-4 rounded-2xl border border-white/5 flex flex-col items-center justify-center text-center shadow-lg">
-                      <div className="relative w-16 h-16 rounded-full border-4 border-[#86efac]/20 flex flex-col items-center justify-center shadow-xl">
+                    <div className="lg:col-span-2 bg-[#0b0f19] p-2.5 rounded-xl border border-white/5 flex flex-col items-center justify-center text-center shadow-lg">
+                      <div className="relative w-12 h-12 rounded-full border-4 border-[#86efac]/20 flex flex-col items-center justify-center shadow-xl">
                         <div className="absolute inset-0 rounded-full border-4 border-t-brand-neon border-r-brand-neon border-b-transparent border-l-transparent animate-spin duration-3000 opacity-60" />
-                        <span className="text-2xl font-mono font-black text-white leading-none tracking-tighter">
+                        <span className="text-lg font-mono font-black text-white leading-none tracking-tighter">
                           {dfsDraftTimer.toString().padStart(2, '0')}
                         </span>
                         <span className="text-[9px] text-slate-500 font-mono uppercase font-semibold">Sec</span>
@@ -3871,7 +3977,12 @@ export default function App() {
                           setDfsDraftPaused(!dfsDraftPaused);
                           addToast(dfsDraftPaused ? "Draft clock resumed." : "Draft clock paused.", "info");
                         }}
-                        className="mt-2.5 px-3 py-1 bg-white/5 hover:bg-white/10 rounded-full                      <div className="mt-2 text-center text-[10px] font-mono leading-tight space-y-0.5" id="dfs-tracker-summary">
+                        className="mt-2.5 px-3 py-1 bg-white/5 hover:bg-white/10 rounded-full text-[10px] font-bold text-slate-300 hover:text-white transition"
+                      >
+                        {dfsDraftPaused ? 'Resume' : 'Pause'}
+                      </button>
+
+                      <div className="mt-2 text-center text-[10px] font-mono leading-tight space-y-0.5" id="dfs-tracker-summary">
                         <div className="text-slate-400 font-bold">Round {Math.min(10, Math.floor(dfsDraftedPlayers.length / 4) + 1)} / 10</div>
                         <div className="text-slate-500">Pick {Math.min(40, dfsDraftedPlayers.length + 1)} / 40</div>
                         <div className="text-[8px] tracking-wider text-brand-purple font-black uppercase mt-1">
@@ -3881,9 +3992,8 @@ export default function App() {
                     </div>
 
                     {/* DRAFT SEATS COLUMN */}
-                    <div className="lg:col-span-10 bg-[#0b0f19] p-4 rounded-2xl border border-white/5 flex items-center overflow-x-auto gap-3.5 scrollbar-thin shadow-lg">
-                      {['BotAlpha', 'BotBeta', 'BotGamma', userProfile?.username || 'Pooja Doshi'].map((name, idx) => { gap-3.5 scrollbar-thin shadow-lg">
-                      {['BotAlpha', 'BotBeta', 'BotGamma', userProfile?.username || 'Pooja Doshi', 'BotDelta', 'BotEpsilon', 'BotZeta', 'BotEta'].map((name, idx) => {
+                    <div className="lg:col-span-10 bg-[#0b0f19] p-2.5 rounded-xl border border-white/5 flex items-center overflow-x-auto gap-2 scrollbar-thin shadow-lg">
+                      {['BotAlpha', 'BotBeta', 'BotGamma', userProfile?.username || 'Pooja Doshi'].map((name, idx) => {
                         const isActive = dfsActiveSeatIndex === idx;
                         
                         // Calculate position counts
@@ -3901,7 +4011,7 @@ export default function App() {
                         return (
                           <div
                             key={idx}
-                            className={`min-w-[125px] flex-1 rounded-xl p-3 border text-center transition-all ${
+                            className={`min-w-[100px] flex-1 rounded-lg p-2 border text-center transition-all ${
                               isActive 
                                 ? 'bg-brand-purple/10 border-brand-purple shadow-lg shadow-purple-950/25 ring-1 ring-brand-purple/30'
                                 : 'bg-[#111827]/40 border-white/5 hover:border-white/10'
@@ -3932,33 +4042,18 @@ export default function App() {
                   </div>
 
                   {/* 3 COLUMN MAIN ARENA ROW */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch flex-1 min-h-0">
                     
                     {/* ====== COLUMN 1: QUEUE ====== */}
-                    <div className="lg:col-span-3 bg-[#0b0f19] p-4 rounded-2xl border border-white/5 flex flex-col justify-between space-y-4 shadow-lg">
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                    <div className="lg:col-span-3 bg-[#0b0f19] p-3 rounded-xl border border-white/5 flex flex-col min-h-0 shadow-lg">
+                      <div className="space-y-2.5 min-h-0 flex flex-col">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
                           <h3 className="font-display font-black text-sm text-white uppercase tracking-wider">Queue</h3>
-                          <span className="text-[10px] font-mono text-slate-500 uppercase font-bold">Priority Status</span>
-                        </div>
-                        
-                        <div className="bg-[#111827]/80 rounded-xl p-3 border border-white/10 space-y-1.5 shadow-inner">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-amber-400 flex items-center gap-1">
-                              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                              Priority Queue
-                            </span>
-                            <span className="px-2 py-0.5 bg-black/45 rounded font-mono text-[9px] text-amber-400 font-bold">
-                              {dfsQueueIds.length} Players
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-400 leading-relaxed">
-                            Single tap the star to add the player to queue.
-                          </p>
+                          <span className="text-xs font-mono text-amber-400 font-bold">{dfsQueueIds.length}/5</span>
                         </div>
 
                         {/* List of 5 buffer slots */}
-                        <div className="space-y-2">
+                        <div className="space-y-2 overflow-y-auto min-h-0">
                           {Array.from({ length: 5 }).map((_, slotIdx) => {
                             const queuedPlayerId = dfsQueueIds[slotIdx];
                             const queuedPlayer = queuedPlayerId ? DFS_NFL_POOL.find(p => p.id === queuedPlayerId) : null;
@@ -3967,42 +4062,40 @@ export default function App() {
                             return (
                               <div 
                                 key={slotIdx}
-                                className={`rounded-lg p-2.5 flex items-center justify-between border text-xs transition-all ${
+                                className={`rounded-lg p-2.5 flex items-center justify-between border text-sm transition-all ${
                                   isSlotOccupied
-                                    ? 'bg-[#1e1b4b]/40 border-brand-purple/40 hover:border-brand-purple/70'
+                                    ? 'bg-[#1e1b4b]/40 border-brand-purple/40'
                                     : 'bg-black/20 border-dashed border-white/5'
                                 }`}
                               >
-                                <div className="flex items-center gap-2">
-                                  <span className="text-slate-600 font-mono text-xs">:: {slotIdx + 1}.</span>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-slate-500 font-mono shrink-0 text-xs">{slotIdx + 1}.</span>
                                   {isSlotOccupied ? (
-                                    <div>
+                                    <div className="min-w-0">
                                       <button
                                         type="button"
                                         onClick={() => {
                                           setSelectedDfsPlayer(queuedPlayer);
                                           setDfsModalTab('stats');
                                         }}
-                                        className="font-bold text-white text-xs hover:text-brand-neon hover:underline text-left focus:outline-none"
+                                        className="font-bold text-white truncate block max-w-full hover:text-brand-neon text-sm text-left focus:outline-none"
                                       >
                                         {queuedPlayer.name}
                                       </button>
-                                      <div className="flex items-center gap-1.5 text-[9px] text-slate-400 mt-0.5">
-                                        <span className="px-1 bg-brand-purple/20 text-brand-purple rounded font-black text-[8px]">{queuedPlayer.position}</span>
+                                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5">
+                                        <span className="px-1 bg-brand-purple/20 text-brand-purple rounded font-black text-[10px]">{queuedPlayer.position}</span>
                                         <span>{queuedPlayer.team}</span>
-                                        <span>•</span>
-                                        <span className="font-mono text-brand-neon font-black">{queuedPlayer.proj} Proj</span>
                                       </div>
                                     </div>
                                   ) : (
-                                    <span className="text-slate-600 font-mono text-xs italic">Empty Slot</span>
+                                    <span className="text-slate-600 font-mono italic text-sm">Empty slot</span>
                                   )}
                                 </div>
 
                                 {isSlotOccupied && (
                                   <button
                                     onClick={() => handleToggleDfsQueue(queuedPlayer.id)}
-                                    className="text-slate-500 hover:text-red-400 p-0.5 font-mono hover:bg-white/5 rounded text-[10px] transition"
+                                    className="text-slate-500 hover:text-red-400 shrink-0 font-mono text-xs ml-1"
                                   >
                                     ✕
                                   </button>
@@ -4012,25 +4105,15 @@ export default function App() {
                           })}
                         </div>
                       </div>
-
-                      <div className="pt-2 border-t border-white/5">
-                        <span className="text-[9px] text-slate-600 font-mono block text-center uppercase tracking-widest">
-                          Buffer Queue Active
-                        </span>
-                      </div>
                     </div>
 
                     {/* ====== COLUMN 2: PLAYERS POOL ====== */}
-                    <div className="lg:col-span-6 bg-[#0b0f19] p-4 rounded-2xl border border-white/10 flex flex-col space-y-4 shadow-xl">
+                    <div className="lg:col-span-6 bg-[#0b0f19] p-2.5 rounded-xl border border-white/10 flex flex-col gap-2 min-h-0 shadow-xl">
                       
                       {/* Banner Info */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2 shrink-0">
                         <div>
-                          <h3 className="font-display font-medium text-xs text-brand-neon uppercase tracking-wider">Players Pool</h3>
-                          <h4 className="font-display font-black text-sm text-white mt-0.5">
-                            The Draft is about to start.
-                          </h4>
-                          <p className="text-[10px] text-slate-400">Prepare yourself for the ultimate fantasy showdown.</p>
+                          <h3 className="font-display font-black text-sm text-white uppercase tracking-wider">Players Pool</h3>
                         </div>
                         
                         <div className="flex flex-wrap items-center gap-3.5 text-xs">
@@ -4083,7 +4166,7 @@ export default function App() {
                       </div>
 
                       {/* Filter/Search Row */}
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center bg-black/25 p-2 rounded-xl border border-white/5">
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center bg-black/25 p-1.5 rounded-lg border border-white/5 shrink-0">
                         
                         {/* Quick Search */}
                         <div className="relative md:col-span-4">
@@ -4128,23 +4211,30 @@ export default function App() {
                       </div>
 
                       {/* TABLE SECTION */}
-                      <div className="overflow-x-auto border border-white/5 rounded-xl bg-[#090d16]/35 max-h-[460px] overflow-y-auto pr-0.5">
-                        <table className="w-full text-left text-[11px] border-collapse relative">
+                      <div className="border border-white/5 rounded-lg bg-[#090d16]/35 flex-1 min-h-0 overflow-auto">
+                        <table className="w-full text-left text-sm border-collapse table-fixed">
+                          <colgroup>
+                            <col className="w-[36px]" />
+                            <col className="w-[32px]" />
+                            <col className="w-[28%]" />
+                            <col className="w-[7%]" />
+                            <col className="w-[9%]" />
+                            <col className="w-[9%]" />
+                            <col className="w-[11%]" />
+                            <col className="w-[8%]" />
+                            <col className="w-[80px]" />
+                          </colgroup>
                           <thead className="sticky top-0 bg-[#0d1222] z-10">
-                            <tr className="text-slate-400 uppercase tracking-wider border-b border-white/10 text-[10px]">
-                              <th className="py-2.5 px-3 font-bold text-center w-[40px]">Queue</th>
-                              <th className="py-2.5 px-2 font-mono text-center">#</th>
-                              <th className="py-2.5 px-3 font-semibold">Players Name</th>
-                              <th className="py-2.5 px-2 text-center">POS</th>
-                              <th className="py-2.5 px-2 font-mono">Team</th>
-                              <th className="py-2.5 px-2 font-mono">Roster%</th>
-                              <th className="py-2.5 px-2">OPP</th>
-                              <th className="py-2.5 px-2 font-mono text-center">OpRK</th>
-                              <th className="py-2.5 px-2">ADP</th>
-                              <th className="py-2.5 px-2">90ADP</th>
-                              <th className="py-2.5 px-2 text-[#22c55e]">Proj</th>
-                              <th className="py-2.5 px-2">Avg</th>
-                              <th className="py-2.5 px-3 text-center">Action</th>
+                            <tr className="text-slate-400 uppercase tracking-wider border-b border-white/10 text-xs">
+                              <th className="py-2 px-1 font-bold text-center">★</th>
+                              <th className="py-2 px-1 font-mono text-center">#</th>
+                              <th className="py-2 px-2 font-semibold">Player</th>
+                              <th className="py-2 px-1 font-mono">Tm</th>
+                              <th className="py-2 px-1 font-mono">Rost%</th>
+                              <th className="py-2 px-1">OPP</th>
+                              <th className="py-2 px-1 font-mono text-center">OpRK</th>
+                              <th className="py-2 px-1 font-mono">Avg</th>
+                              <th className="py-2 px-2 text-center sticky right-0 bg-[#0d1222] z-20 shadow-[-4px_0_8px_rgba(0,0,0,0.4)]">Draft</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-white/5 text-slate-200">
@@ -4171,16 +4261,16 @@ export default function App() {
                                 return (
                                   <tr 
                                     key={player.id} 
-                                    className={`hover:bg-white/5 transition-all text-[11px] ${isDrafted ? 'opacity-40 bg-black/40' : ''}`}
+                                    className={`hover:bg-white/5 transition-all ${isDrafted ? 'opacity-40 bg-black/40' : ''}`}
                                   >
                                     {/* QUEUE */}
-                                    <td className="py-2.5 px-3 text-center font-semibold">
+                                    <td className="py-2 px-1 text-center font-semibold">
                                       <button 
                                         onClick={() => handleToggleDfsQueue(player.id)}
                                         disabled={isDrafted}
                                         className="p-1 rounded hover:bg-white/10 transition"
                                       >
-                                        <Star className={`w-3.5 h-3.5 ${
+                                        <Star className={`w-4 h-4 ${
                                           isQueued 
                                             ? 'text-amber-400 fill-amber-400' 
                                             : 'text-slate-500 hover:text-slate-300'
@@ -4189,15 +4279,15 @@ export default function App() {
                                     </td>
 
                                     {/* NUMBER */}
-                                    <td className="py-2.5 px-2 font-mono text-center text-slate-500 font-bold">
+                                    <td className="py-2 px-1 font-mono text-center text-slate-500 font-bold text-xs">
                                       {idx + 1}
                                     </td>
 
-                                    {/* NAME WITH TYPE BADGING */}
-                                    <td className="py-2.5 px-3 font-semibold text-white">
-                                      <div className="flex items-center gap-1.5">
+                                    {/* NAME + POS (inline — no wasted gap) */}
+                                    <td className="py-2 px-2 font-semibold text-white">
+                                      <div className="flex items-center gap-2 min-w-0">
                                         {player.starType && (
-                                          <span className={`px-1 py-0.5 rounded text-[8px] font-black uppercase text-black leading-none ${
+                                          <span className={`shrink-0 px-1 py-0.5 rounded text-[9px] font-black uppercase text-black leading-none ${
                                             player.starType === 'Q' ? 'bg-[#f59e0b]' : 'bg-[#a855f7]'
                                           }`}>
                                             ★{player.starType}
@@ -4209,36 +4299,32 @@ export default function App() {
                                             setSelectedDfsPlayer(player);
                                             setDfsModalTab('stats');
                                           }}
-                                          className="hover:text-brand-neon hover:underline transition-all text-left font-semibold text-white focus:outline-none"
+                                          className="hover:text-brand-neon hover:underline transition-all text-left font-semibold text-white focus:outline-none truncate min-w-0 flex-1"
                                         >
                                           {player.name}
                                         </button>
+                                        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-black uppercase font-mono ${
+                                          player.position === 'QB' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25' :
+                                          player.position === 'RB' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/25' :
+                                          player.position === 'WR' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/25' :
+                                          'bg-blue-500/10 text-blue-400 border border-blue-500/25'
+                                        }`}>
+                                          {player.position}
+                                        </span>
                                       </div>
                                     </td>
 
-                                    {/* POSITION BADGE */}
-                                    <td className="py-2.5 px-2 text-center">
-                                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider font-mono ${
-                                        player.position === 'QB' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25' :
-                                        player.position === 'RB' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/25' :
-                                        player.position === 'WR' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/25' :
-                                        'bg-blue-500/10 text-blue-400 border border-blue-500/25'
-                                      }`}>
-                                        {player.position}
-                                      </span>
-                                    </td>
-
                                     {/* TEAM */}
-                                    <td className="py-2.5 px-2 font-mono text-slate-400">{player.team}</td>
+                                    <td className="py-2 px-1 font-mono text-slate-400">{player.team}</td>
 
                                     {/* ROSTER% */}
-                                    <td className="py-2.5 px-2 font-mono text-slate-500">{player.rosterPct}</td>
+                                    <td className="py-2 px-1 font-mono text-slate-500">{player.rosterPct}</td>
 
                                     {/* OPP */}
-                                    <td className="py-2.5 px-2 text-slate-400">{player.opp}</td>
+                                    <td className="py-2 px-1 text-slate-400">{player.opp}</td>
 
                                     {/* OP RANK */}
-                                    <td className="py-2.5 px-2 font-mono text-center">
+                                    <td className="py-2 px-1 font-mono text-center">
                                       <span className={
                                         player.opRk.includes('3rd') || player.opRk.includes('5th') ? 'text-red-400 font-bold' :
                                         player.opRk.includes('14th') ? 'text-amber-400 font-bold' : 'text-slate-500'
@@ -4247,25 +4333,16 @@ export default function App() {
                                       </span>
                                     </td>
 
-                                    {/* ADP */}
-                                    <td className="py-2.5 px-2 font-mono text-slate-400">{player.adp}</td>
-                                    
-                                    {/* 90ADP */}
-                                    <td className="py-2.5 px-2 font-mono text-slate-400">{player.adp90}</td>
-                                    
-                                    {/* PROJ */}
-                                    <td className="py-2.5 px-2 font-mono text-brand-neon font-black">{player.proj}</td>
-                                    
                                     {/* AVG */}
-                                    <td className="py-2.5 px-2 font-mono text-slate-400">{player.avg}</td>
+                                    <td className="py-2 px-1 font-mono text-slate-400">{player.avg}</td>
 
                                     {/* DRAFT */}
-                                    <td className="py-2.5 px-3 text-center">
+                                    <td className="py-2 px-2 text-center sticky right-0 bg-[#090d16] z-[5] shadow-[-4px_0_8px_rgba(0,0,0,0.35)]">
                                       <button 
                                         type="button"
                                         disabled={isDrafted}
                                         onClick={() => handleDfsManualDraft(player)}
-                                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition ${
+                                        className={`px-2.5 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition whitespace-nowrap ${
                                           isDrafted
                                             ? 'bg-white/5 text-slate-600 border border-white/5 cursor-default'
                                             : 'bg-[#ea580c] hover:bg-brand-neon hover:text-black hover:shadow-lg hover:shadow-[#059669]/20 text-white transition font-black'
@@ -4284,29 +4361,29 @@ export default function App() {
                     </div>
 
                     {/* ====== COLUMN 3: MY LINEUP ====== */}
-                    <div className="lg:col-span-3 bg-[#0b0f19] p-4 rounded-2xl border border-white/5 flex flex-col justify-between space-y-4 shadow-lg">
+                    <div className="lg:col-span-3 bg-[#0b0f19] p-3 rounded-xl border border-white/5 flex flex-col min-h-0 shadow-lg">
                       
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                      <div className="flex flex-col min-h-0 flex-1">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
                           <h3 className="font-display font-black text-sm text-white uppercase tracking-wider">My Lineup</h3>
-                          <span className="text-[10px] font-mono text-brand-neon font-black bg-brand-neon/15 px-2 py-0.5 rounded">
-                            {dfsDraftedPlayers.filter(p => p.draftedBySeatIndex === 3).length} / 7 Starter
+                          <span className="text-xs font-mono text-brand-neon font-black">
+                            {dfsDraftedPlayers.filter(p => p.draftedBySeatIndex === 3).length}/7
                           </span>
                         </div>
 
                         {/* Starters stacked cards */}
-                        <div className="space-y-2.5">
+                        <div className="space-y-1.5 overflow-y-auto min-h-0 flex-1 py-1.5">
                           {(() => {
                             const userPicks = dfsDraftedPlayers.filter(p => p.draftedBySeatIndex === 3);
 
                             const slots = [
-                              { key: 'QB', label: 'Quarterback (QB)', themeColor: 'border-emerald-500/25 text-emerald-400 bg-emerald-500/5' },
-                              { key: 'RB', label: 'Running Back (RB)', themeColor: 'border-amber-500/25 text-amber-400 bg-amber-500/5' },
-                              { key: 'RB', label: 'Running Back (RB)', themeColor: 'border-amber-500/25 text-amber-400 bg-amber-500/5' },
-                              { key: 'WR', label: 'Wide Receiver (WR)', themeColor: 'border-rose-500/25 text-rose-400 bg-rose-500/5' },
-                              { key: 'WR', label: 'Wide Receiver (WR)', themeColor: 'border-rose-500/25 text-rose-400 bg-rose-500/5' },
-                              { key: 'TE', label: 'Tight End (TE)', themeColor: 'border-blue-500/25 text-blue-400 bg-blue-500/5' },
-                              { key: 'FLEX', label: 'FLEX (W/R/T)', themeColor: 'border-purple-500/25 text-purple-400 bg-purple-500/5' }
+                              { key: 'QB', label: 'QB', themeColor: 'border-emerald-500/25 text-emerald-400 bg-emerald-500/5' },
+                              { key: 'RB', label: 'RB', themeColor: 'border-amber-500/25 text-amber-400 bg-amber-500/5' },
+                              { key: 'RB', label: 'RB', themeColor: 'border-amber-500/25 text-amber-400 bg-amber-500/5' },
+                              { key: 'WR', label: 'WR', themeColor: 'border-rose-500/25 text-rose-400 bg-rose-500/5' },
+                              { key: 'WR', label: 'WR', themeColor: 'border-rose-500/25 text-rose-400 bg-rose-500/5' },
+                              { key: 'TE', label: 'TE', themeColor: 'border-blue-500/25 text-blue-400 bg-blue-500/5' },
+                              { key: 'FLEX', label: 'FLEX', themeColor: 'border-purple-500/25 text-purple-400 bg-purple-500/5' }
                             ];
 
                             const remainingPicks = [...userPicks];
@@ -4328,50 +4405,44 @@ export default function App() {
                               return (
                                 <div 
                                   key={sIdx}
-                                  className={`rounded-xl border transition duration-200 ${
+                                  className={`rounded-lg border transition duration-200 ${
                                     matchingPlayer 
-                                      ? 'bg-slate-900 border-[#8b5cf6]/40 p-3 shadow shadow-purple-950/15'
-                                      : `${slot.themeColor} border-dashed border-2 p-3 text-center cursor-default hover:bg-white/[0.01]`
+                                      ? 'bg-slate-900 border-[#8b5cf6]/40 p-2.5'
+                                      : `${slot.themeColor} border-dashed p-2.5 text-center`
                                   }`}
                                 >
                                   {matchingPlayer ? (
-                                    <div className="flex items-center justify-between">
-                                      <div>
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="px-1 text-[8px] font-black rounded bg-brand-purple text-white">{matchingPlayer.position}</span>
-                                          <button
-                                            onClick={() => {
-                                              const fullNflPlayer = DFS_NFL_POOL.find(p => p.id === matchingPlayer.id) || matchingPlayer;
-                                              setSelectedDfsPlayer(fullNflPlayer);
-                                              setDfsModalTab('stats');
-                                            }}
-                                            className="text-white hover:text-brand-neon hover:underline text-xs font-bold text-left transition focus:outline-none"
-                                            title="View Player Stats"
-                                          >
-                                            {matchingPlayer.name}
-                                          </button>
-                                        </div>
-                                        <div className="text-[10px] text-slate-400 mt-0.5">
-                                          <span>{matchingPlayer.team} • Opp: {matchingPlayer.opp}</span>
-                                        </div>
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5 mb-1">
+                                        <span className="text-[10px] font-black uppercase text-slate-500">{slot.label}</span>
+                                        <span className="px-1 py-0.5 rounded text-[10px] font-black bg-brand-purple/20 text-brand-purple">{matchingPlayer.position}</span>
                                       </div>
-                                      <div className="text-right">
-                                        <span className="text-brand-neon font-bold text-xs block font-mono">{matchingPlayer.points} PTS</span>
+                                      <button
+                                        onClick={() => {
+                                          const fullNflPlayer = DFS_NFL_POOL.find(p => p.id === matchingPlayer.id) || matchingPlayer;
+                                          setSelectedDfsPlayer(fullNflPlayer);
+                                          setDfsModalTab('stats');
+                                        }}
+                                        className="text-white hover:text-brand-neon text-sm font-bold truncate block w-full text-left"
+                                        title={matchingPlayer.name}
+                                      >
+                                        {matchingPlayer.name}
+                                      </button>
+                                      <div className="flex items-center justify-between mt-1">
+                                        <span className="text-xs text-slate-400">{matchingPlayer.team}</span>
                                         <button 
                                           onClick={() => {
                                             setDfsDraftedPlayers(prev => prev.filter(p => p.id !== matchingPlayer.id));
                                             addToast(`Released ${matchingPlayer.name}`, 'info');
                                           }}
-                                          className="text-[9px] text-red-400 hover:underline font-mono font-bold block"
+                                          className="text-xs text-red-400 font-mono font-bold"
                                         >
-                                          ✕ Release
+                                          ✕
                                         </button>
                                       </div>
                                     </div>
                                   ) : (
-                                    <span className="text-[11px] font-display font-medium text-slate-500 tracking-tight flex items-center justify-center gap-1">
-                                      {slot.label}
-                                    </span>
+                                    <span className="text-sm font-mono text-slate-500">{slot.label}</span>
                                   )}
                                 </div>
                               );
@@ -4383,18 +4454,14 @@ export default function App() {
                       </div>
 
                       {/* Lineup footer status */}
-                      <div className="pt-2 border-t border-white/5 flex flex-col gap-1.5">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-slate-500 font-semibold uppercase">Remaining Salary</span>
-                          <span className="text-white font-mono font-bold">$256,356</span>
-                        </div>
+                      <div className="pt-2 border-t border-white/5 shrink-0">
                         <button
                           onClick={() => {
                             const myPicks = dfsDraftedPlayers.filter(p => p.draftedBySeatIndex === 3);
                             if (myPicks.length < 10) {
                               addToast(`Draft 10 unique stars to submit your lineup! Currently drafted: ${myPicks.length}/10.`, 'error');
                             } else {
-                              addToast(`🎉 Underdog Lineup Submitted! Entered in tournament slate.`, 'success');
+                              addToast(`🎉 Lineup submitted! Open Show Schedule below for your full H2H bracket.`, 'success');
                               
                               if (activeContestDraft) {
                                 setContests(prev => prev.map(c => {
@@ -4421,9 +4488,9 @@ export default function App() {
                               });
                             }
                           }}
-                          className="w-full mt-1.5 py-2.5 bg-brand-neon hover:bg-emerald-400 text-black font-black font-display text-xs rounded-xl uppercase tracking-wider transition shadow-lg shadow-emerald-950/40"
+                          className="w-full mt-1.5 py-2.5 bg-brand-neon hover:bg-emerald-400 text-black font-black font-display text-sm rounded-xl uppercase tracking-wider transition"
                         >
-                          Submit Contest Lineup ➔
+                          Submit Lineup ➔
                         </button>
                       </div>
 
@@ -4434,208 +4501,9 @@ export default function App() {
                 </div>
                 )
               ) : (
-                /* =================== ORIGINAL LEAGUE DRAFT PANEL =================== */
                 <>
-                  {/* STATUS & ROUND PICK HEADER BOARD */}
-              <div className="bg-[#111827]/80 p-5 rounded-xl border border-white/5 flex flex-col md:flex-row items-center justify-between gap-6">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <span className={`px-2.5 py-0.5 text-[11px] rounded-full font-bold uppercase tracking-widest ${
-                      draftSession?.status === 'Active' ? 'bg-red-500/15 text-red-400 border border-red-500/30 animate-pulse' :
-                      draftSession?.status === 'Completed' ? 'bg-green-500/15 text-green-400 border border-green-500/30' :
-                      'bg-amber-500/15 text-amber-400'
-                    }`}>
-                      {draftSession?.status || 'Upcoming'}
-                    </span>
-                    <span className="text-xs text-slate-400">League: {activeLeague?.name}</span>
-                  </div>
-                  
-                  <h2 className="text-xl lg:text-2xl font-display font-bold text-white mt-2">
-                    {draftSession?.status === 'Active' ? (
-                      <span className="flex items-center gap-2">
-                        Draft Pick <span className="text-brand-neon font-mono">#{draftSession.currentPickIndex + 1}</span>
-                        <span className="text-xs font-normal text-slate-400"> (Round {draftSession.round} • {draftSession.direction})</span>
-                      </span>
-                    ) : (
-                      <span>Snake Draft Summary</span>
-                    )}
-                  </h2>
-                </div>
-
-                {draftSession?.status === 'Active' ? (
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <span className="text-xs text-slate-400 block font-medium">Active Drafter</span>
-                      <strong className="text-brand-purple text-base block font-display tracking-tight">
-                        {draftSession.nextPickerName || 'Loading...'}
-                      </strong>
-                      <span className="text-[11px] text-slate-500">({draftSession.nextTeamName})</span>
-                    </div>
-
-                    {/* TIMER BLOCK CARD */}
-                    <div className="bg-red-950/20 border border-red-500/30 rounded-xl px-5 py-2 text-center shadow-lg shadow-red-950/35">
-                      <span className="text-[10px] uppercase text-red-400 font-bold block">Pick Timer</span>
-                      <strong className="text-2xl font-mono text-red-500 font-black tracking-tight">{draftSession.timerRemainingSeconds}s</strong>
-                    </div>
-                  </div>
-                ) : draftSession?.status === 'Upcoming' ? (
-                  <button 
-                    onClick={handleStartDraft}
-                    className="bg-brand-neon hover:bg-emerald-400 text-black font-display font-bold px-6 py-2.5 rounded-xl text-sm transition tracking-wider shadow-lg shadow-emerald-950/40"
-                  >
-                    🚀 ACTIVATE DRAFT CLOCK
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-2 text-green-400 font-semibold text-sm">
-                    <CheckCircle2 className="w-5 h-5" />
-                    All 11 players successfully drafted per team roster!
-                  </div>
-                )}
-              </div>
-
-              {draftSession?.status === 'Active' && (
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                  
-                  {/* LEFT SIDE: PLAYER SELECTION POOL FOR THE RUNNING TEAM */}
-                  <div className="xl:col-span-2 space-y-4">
-                    
-                    {/* PLAYER SEARCH AND FILTERS */}
-                    <div className="bg-black/35 p-3 rounded-xl border border-white/5 flex flex-wrap gap-3 items-center justify-between">
-                      <div className="relative flex-1 min-w-[200px]">
-                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-                        <input 
-                          type="text" 
-                          placeholder="Search prime Premier League stars..." 
-                          value={draftPlayerSearch}
-                          onChange={(e) => setDraftPlayerSearch(e.target.value)}
-                          className="w-full bg-[#111827] border border-white/10 rounded px-9 py-2 text-xs text-white focus:outline-none focus:border-brand-neon"
-                        />
-                      </div>
-
-                      {/* POSITION SLOTS */}
-                      <div className="flex items-center gap-1 bg-[#111827] p-1 rounded border border-white/5 text-xs">
-                        {(['ALL', 'GKP', 'DEF', 'MID', 'FWD'] as const).map(p => (
-                          <button
-                            key={p}
-                            onClick={() => setDraftPositionFilter(p)}
-                            className={`px-3 py-1 rounded text-[11px] font-bold uppercase transition ${
-                              draftPositionFilter === p ? 'bg-brand-neon text-black' : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            {p}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* INTERACTIVE PLAYERS STOCK SELECTION BOARD */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 max-h-[500px] overflow-y-auto pr-1">
-                      {allPlayersPool
-                        .filter(p => {
-                          const matchesSearch = p.name.toLowerCase().includes(draftPlayerSearch.toLowerCase()) || p.club.toLowerCase().includes(draftPlayerSearch.toLowerCase());
-                          const matchesPosition = draftPositionFilter === 'ALL' || p.position === draftPositionFilter;
-                          
-                          // Exclude already drafted candidates in this league
-                          const isAlreadyDrafted = activeLeague?.teams.some(team => 
-                            team.activePlayerIds.includes(p.id) || team.benchPlayerIds.includes(p.id)
-                          );
-                          return matchesSearch && matchesPosition && !isAlreadyDrafted;
-                        })
-                        .map(player => (
-                          <div 
-                            key={player.id} 
-                            className="bg-[#111827]/80 hover:bg-[#111827] p-3.5 rounded-xl border border-white/5 hover:border-white/10 transition flex items-center justify-between gap-4"
-                          >
-                            <div className="flex items-center gap-3">
-                              <span className={`w-8 h-8 rounded text-xs font-bold flex items-center justify-center ${
-                                player.position === 'FWD' ? 'bg-red-950/40 text-red-400 border border-red-500/20' :
-                                player.position === 'MID' ? 'bg-blue-950/40 text-blue-400 border border-blue-500/20' :
-                                player.position === 'DEF' ? 'bg-green-950/40 text-green-400 border border-green-500/20' :
-                                'bg-amber-950/40 text-amber-400 border border-amber-500/20'
-                              }`}>
-                                {player.position}
-                              </span>
-                              <div>
-                                <h4 className="font-semibold text-sm text-white">{player.name}</h4>
-                                <div className="text-xs text-slate-400 flex items-center gap-2">
-                                  <span>{player.club}</span>
-                                  <span>•</span>
-                                  <span className="text-brand-neon font-bold font-mono">{player.points} pts</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <button 
-                              onClick={() => handleDraftPick(player.id)}
-                              className="bg-brand-neon hover:bg-emerald-400 text-black font-semibold text-xs px-3 py-1.5 rounded transition shadow"
-                            >
-                              Draft Star 🎯
-                            </button>
-                          </div>
-                      ))}
-                      {allPlayersPool.filter(p => {
-                        const isAlreadyDrafted = activeLeague?.teams.some(team => 
-                          team.activePlayerIds.includes(p.id) || team.benchPlayerIds.includes(p.id)
-                        );
-                        return !isAlreadyDrafted;
-                      }).length === 0 && (
-                        <div className="col-span-2 text-center py-12 text-slate-400">
-                          No remaining un-drafted players in the pool.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* RIGHT SIDE: SNAKE DRAFT CHRONOLOGY / LOGS */}
-                  <div className="space-y-4">
-                    <h3 className="font-display font-semibold text-base text-white">Draft Ticker Logs</h3>
-                    
-                    <div className="bg-black/35 p-4 rounded-xl border border-white/5 space-y-3 max-h-[360px] overflow-y-auto">
-                      {draftSession.draftHistory.map((item: any, idx: number) => (
-                        <div key={idx} className="bg-white/5 p-2.5 rounded text-xs border-l-2 border-brand-purple">
-                          <div className="flex justify-between items-center text-[10px] text-slate-400">
-                            <strong>Pick #{item.pickNumber}</strong>
-                            <span>{item.timestamp}</span>
-                          </div>
-                          <p className="text-slate-200 mt-1">
-                            <strong className="text-brand-neon">{item.teamName}</strong> acquired <strong>{item.playerName}</strong>
-                          </p>
-                        </div>
-                      ))}
-                      {draftSession.draftHistory.length === 0 && (
-                        <div className="text-slate-400 text-center py-12 text-xs">
-                          No drafts executed yet. Use action selector to recruit.
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="bg-purple-950/15 border border-brand-purple/20 p-4 rounded-xl text-xs space-y-1">
-                      <strong className="text-brand-purple text-xs flex items-center gap-1.5 font-display">
-                        <Users className="w-3.5 h-3.5" />
-                        Draft Order Rotation:
-                      </strong>
-                      <p className="text-slate-300 leading-relaxed text-[11px]">
-                        Draft shifts forwards and backwards per round:
-                      </p>
-                      <div className="flex flex-wrap gap-1 pt-1 font-mono text-[10px] text-slate-200">
-                        {draftSession.order.map((oid: string, idx: number) => {
-                          const mName = activeLeague?.teams.find(t => t.id === oid)?.name || 'Guest FC';
-                          return (
-                            <span key={oid} className="px-1.5 py-0.5 bg-[#111827] rounded border border-white/5 block">
-                              {idx + 1}. {mName}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-
-
               {/* CONTESTS & TOURNAMENTS LISTING IN DRAFT ROOM */}
-              <div className="bg-[#111827]/80 rounded-2xl border border-white/10 p-5 space-y-4 shadow-xl mt-6" id="draft-room-contests-panel">
+              <div className="bg-[#111827]/80 rounded-2xl border border-white/10 p-5 space-y-4 shadow-xl" id="draft-room-contests-panel">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-3">
                   <div>
                     <h3 className="font-display font-semibold text-base text-white flex items-center gap-2">
@@ -4764,17 +4632,7 @@ export default function App() {
                               </p>
                             </div>
 
-                            {/* METRICS ROW */}
-                            <div className="grid grid-cols-2 gap-2 pt-2 text-[10px] border-t border-white/5">
-                              <div className="flex flex-col">
-                                <span className="text-slate-500 font-semibold uppercase">Prizes Pool</span>
-                                <span className="text-brand-neon font-bold truncate">{contest.prizes}</span>
-                              </div>
-                              <div className="flex flex-col text-right">
-                                <span className="text-slate-500 font-semibold uppercase">Capacity Joined</span>
-                                <span className="text-slate-300 font-mono">{contest.participants} / {contest.maxParticipants}</span>
-                              </div>
-                            </div>
+                            <ContestPrizeMetrics contest={contest} />
                           </div>
 
                           {/* FOOTER ACTIONS */}
@@ -4785,9 +4643,10 @@ export default function App() {
                                 <span className="text-brand-neon font-black font-sans">{contest.finalRoster?.length || 10} Stars</span>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-1">
-                                <span className="text-[10px] text-slate-500 font-medium font-mono">Fee:</span>
-                                <span className="text-xs font-bold text-slate-300">{contest.entryFee}</span>
+                              <div className="flex items-center gap-2 text-[10px] font-mono">
+                                <span className="text-brand-neon font-bold">{contest.prizePool ?? contest.prizes}</span>
+                                <span className="text-slate-600">·</span>
+                                <span className="text-amber-300 font-bold">Win {contest.winningAmount ?? '—'}</span>
                               </div>
                             )}
 
@@ -4894,17 +4753,13 @@ export default function App() {
                       value={myRoster?.team.formation || '4-4-2'}
                       onChange={async (e) => {
                         if (!myRoster) return;
-                        try {
-                          const r = await fetch(`/api/leagues/${selectedLeagueId}/team/lineup`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ formation: e.target.value })
-                          });
-                          if (r.ok) {
-                            addToast(`Formation switched to ${e.target.value}!`, 'success');
-                            API.fetchRoster();
-                          }
-                        } catch(err) {}
+                        const result = staticStore.updateLineup(selectedLeagueId, { formation: e.target.value });
+                        if ('error' in result && result.error) {
+                          addToast(result.error, 'error');
+                          return;
+                        }
+                        addToast(`Formation switched to ${e.target.value}!`, 'success');
+                        API.fetchRoster();
                       }}
                       className="bg-[#030712] border border-white/10 px-2.5 py-1 rounded text-xs font-bold text-white focus:outline-none cursor-pointer hover:border-white/20 mt-1"
                     >
@@ -4924,264 +4779,21 @@ export default function App() {
                 {/* 1 & 2 COLUMNS: INTERACTIVE SOCCER FIELD + SCOUT ASSISTANT */}
                 <div className="xl:col-span-2 space-y-6">
 
-                  {/* VIRTUAL SOCCER FIELD (TACTICAL BOARD) */}
-                  <div className="bg-[#0d1527] rounded-3xl border border-emerald-500/20 p-5 shadow-[0_10px_40px_rgba(16,185,129,0.1)] relative overflow-hidden" id="soccer-field-pitch">
-                    
-                    {/* Turf Field Grass Backdrop Overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-b from-[#022c22]/10 via-black/45 to-[#022c22]/10 pointer-events-none" />
-                    
-                    {/* Tactical Lines drawing */}
-                    <div className="absolute inset-x-5 inset-y-5 border border-white/5 rounded-2xl pointer-events-none flex flex-col justify-between">
-                      {/* Top Penalty Box */}
-                      <div className="border-b border-r border-l border-white/5 w-1/2 h-24 mx-auto relative">
-                        <div className="border border-white/5 w-1/3 h-10 mx-auto mt-0 rounded-b" />
-                      </div>
-                      
-                      {/* Center circle line */}
-                      <div className="border-t border-white/5 w-full relative flex items-center justify-center">
-                        <div className="border border-white/5 w-24 h-24 rounded-full -mt-12" />
-                        <div className="w-1.5 h-1.5 bg-white/20 rounded-full" />
-                      </div>
-
-                      {/* Bottom Penalty Box */}
-                      <div className="border-t border-r border-l border-white/5 w-1/2 h-24 mx-auto relative">
-                        <div className="border border-white/5 w-1/3 h-10 mx-auto absolute bottom-0 left-1/2 -translate-x-1/2 rounded-t" />
-                      </div>
+                  {myRoster ? (
+                    <TacticalSquadPitch
+                      formation={myRoster.team.formation || '4-4-2'}
+                      active={myRoster.active}
+                      bench={myRoster.bench}
+                      team={myRoster.team}
+                      onBench={(id) => handleSwapSquadSpot(id, 'bench')}
+                      onCaptain={handleSetCaptain}
+                      onViceCaptain={handleSetViceCaptain}
+                    />
+                  ) : (
+                    <div className="bg-[#0a1220] rounded-3xl border border-dashed border-white/10 p-12 text-center text-slate-500 text-sm">
+                      Complete your draft to view the tactical ground formation.
                     </div>
-
-                    <div className="relative flex items-center justify-between mb-4 pb-2 border-b border-white/5">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-[#10b981]" />
-                        <h3 className="font-display font-black text-sm text-emerald-400 uppercase tracking-wider">
-                          Interactive Roster Pitch Layout
-                        </h3>
-                      </div>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        Tactical Board
-                      </span>
-                    </div>
-
-                    <div className="relative py-4 space-y-8 flex flex-col justify-between h-[480px]">
-                      
-                      {/* position row FWD (Top) */}
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-mono text-slate-500 font-bold block text-center uppercase tracking-widest bg-[#020617]/50 max-w-[50px] mx-auto py-0.5 rounded border border-white/5">FWD</span>
-                        <div className="flex flex-wrap justify-center gap-6">
-                          {myRoster?.active.filter(p => p.position === 'FWD').map(player => (
-                            <div 
-                              key={player.id} 
-                              className="w-24 bg-[#111827]/90 rounded-2xl border border-emerald-500/20 shadow-lg p-2 text-center relative group hover:scale-105 transition-all duration-200"
-                            >
-                              <div className="absolute -top-1 -right-1 flex gap-1">
-                                {myRoster.team.captainId === player.id && (
-                                  <span className="w-5 h-5 bg-amber-500 text-black text-[10px] font-black rounded-full flex items-center justify-center font-mono shadow">C</span>
-                                )}
-                                {myRoster.team.viceCaptainId === player.id && (
-                                  <span className="w-5 h-5 bg-slate-500 text-white text-[10px] font-black rounded-full flex items-center justify-center font-mono shadow">V</span>
-                                )}
-                              </div>
-                              <div className="w-10 h-10 rounded-full mx-auto bg-gradient-to-br from-emerald-500/5 to-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-black text-xs flex items-center justify-center shadow-inner">
-                                {player.club}
-                              </div>
-                              <span className="block mt-1 text-[11px] font-bold text-white truncate px-0.5">{player.name.split(' ').pop()}</span>
-                              <span className="block text-[10px] font-mono text-brand-neon font-black">{player.points} pts</span>
-                              
-                              {/* QUICK PITCH OVERLAY POPUP FOR STATE CONTROL */}
-                              <div className="absolute inset-0 bg-[#070a13]/95 rounded-2xl opacity-0 group-hover:opacity-100 transition-all duration-200 p-1 flex flex-col justify-center gap-1 z-10 border border-white/10 shadow-xl">
-                                <button 
-                                  onClick={() => handleSwapSquadSpot(player.id, 'bench')} 
-                                  className="w-full text-[9px] font-mono font-bold bg-[#1e293b] hover:bg-rose-950 text-slate-300 hover:text-white py-0.5 rounded transition"
-                                >
-                                  Bench ⬇️
-                                </button>
-                                <button 
-                                  onClick={() => handleSetCaptain(player.id)} 
-                                  className="w-full text-[9px] font-mono font-bold bg-amber-500 hover:bg-amber-600 text-black py-0.5 rounded transition"
-                                >
-                                  Captain
-                                </button>
-                                <button 
-                                  onClick={() => handleSetViceCaptain(player.id)} 
-                                  className="w-full text-[9px] font-mono font-bold bg-slate-600 hover:bg-slate-700 text-white py-0.5 rounded transition"
-                                >
-                                  Vice-C
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                          {(!myRoster || myRoster.active.filter(p => p.position === 'FWD').length === 0) && (
-                            <div className="border border-dashed border-white/10 rounded-2xl w-24 h-24 flex flex-col items-center justify-center p-2 text-center">
-                              <span className="text-[10px] text-slate-600 font-bold block">No Forward</span>
-                              <span className="text-[8px] text-slate-600">Starter Empty</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* position row MID */}
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-mono text-slate-500 font-bold block text-center uppercase tracking-widest bg-[#020617]/50 max-w-[50px] mx-auto py-0.5 rounded border border-white/5">MID</span>
-                        <div className="flex flex-wrap justify-center gap-6">
-                          {myRoster?.active.filter(p => p.position === 'MID').map(player => (
-                            <div 
-                              key={player.id} 
-                              className="w-24 bg-[#111827]/90 rounded-2xl border border-emerald-500/20 shadow-lg p-2 text-center relative group hover:scale-105 transition-all duration-200"
-                            >
-                              <div className="absolute -top-1 -right-1 flex gap-1">
-                                {myRoster.team.captainId === player.id && (
-                                  <span className="w-5 h-5 bg-amber-500 text-black text-[10px] font-black rounded-full flex items-center justify-center font-mono shadow">C</span>
-                                )}
-                                {myRoster.team.viceCaptainId === player.id && (
-                                  <span className="w-5 h-5 bg-slate-500 text-white text-[10px] font-black rounded-full flex items-center justify-center font-mono shadow">V</span>
-                                )}
-                              </div>
-                              <div className="w-10 h-10 rounded-full mx-auto bg-gradient-to-br from-emerald-500/5 to-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-black text-xs flex items-center justify-center shadow-inner">
-                                {player.club}
-                              </div>
-                              <span className="block mt-1 text-[11px] font-bold text-white truncate px-0.5">{player.name.split(' ').pop()}</span>
-                              <span className="block text-[10px] font-mono text-brand-neon font-black">{player.points} pts</span>
-                              
-                              <div className="absolute inset-0 bg-[#070a13]/95 rounded-2xl opacity-0 group-hover:opacity-100 transition-all duration-200 p-1 flex flex-col justify-center gap-1 z-10 border border-white/10 shadow-xl">
-                                <button 
-                                  onClick={() => handleSwapSquadSpot(player.id, 'bench')} 
-                                  className="w-full text-[9px] font-mono font-bold bg-[#1e293b] hover:bg-rose-950 text-slate-300 hover:text-white py-0.5 rounded transition"
-                                >
-                                  Bench ⬇️
-                                </button>
-                                <button 
-                                  onClick={() => handleSetCaptain(player.id)} 
-                                  className="w-full text-[9px] font-mono font-bold bg-amber-500 hover:bg-amber-600 text-black py-0.5 rounded transition"
-                                >
-                                  Captain
-                                </button>
-                                <button 
-                                  onClick={() => handleSetViceCaptain(player.id)} 
-                                  className="w-full text-[9px] font-mono font-bold bg-slate-600 hover:bg-slate-700 text-white py-0.5 rounded transition"
-                                >
-                                  Vice-C
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                          {(!myRoster || myRoster.active.filter(p => p.position === 'MID').length === 0) && (
-                            <div className="border border-dashed border-white/10 rounded-2xl w-24 h-24 flex flex-col items-center justify-center p-2 text-center">
-                              <span className="text-[10px] text-slate-600 font-bold block">No Midfield</span>
-                              <span className="text-[8px] text-slate-600">Starter Empty</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* position row DEF */}
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-mono text-slate-500 font-bold block text-center uppercase tracking-widest bg-[#020617]/50 max-w-[50px] mx-auto py-0.5 rounded border border-white/5">DEF</span>
-                        <div className="flex flex-wrap justify-center gap-6">
-                          {myRoster?.active.filter(p => p.position === 'DEF').map(player => (
-                            <div 
-                              key={player.id} 
-                              className="w-24 bg-[#111827]/90 rounded-2xl border border-emerald-500/20 shadow-lg p-2 text-center relative group hover:scale-105 transition-all duration-200"
-                            >
-                              <div className="absolute -top-1 -right-1 flex gap-1">
-                                {myRoster.team.captainId === player.id && (
-                                  <span className="w-5 h-5 bg-amber-500 text-black text-[10px] font-black rounded-full flex items-center justify-center font-mono shadow">C</span>
-                                )}
-                                {myRoster.team.viceCaptainId === player.id && (
-                                  <span className="w-5 h-5 bg-slate-500 text-white text-[10px] font-black rounded-full flex items-center justify-center font-mono shadow">V</span>
-                                )}
-                              </div>
-                              <div className="w-10 h-10 rounded-full mx-auto bg-gradient-to-br from-emerald-500/5 to-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-black text-xs flex items-center justify-center shadow-inner">
-                                {player.club}
-                              </div>
-                              <span className="block mt-1 text-[11px] font-bold text-white truncate px-0.5">{player.name.split(' ').pop()}</span>
-                              <span className="block text-[10px] font-mono text-brand-neon font-black">{player.points} pts</span>
-                              
-                              <div className="absolute inset-0 bg-[#070a13]/95 rounded-2xl opacity-0 group-hover:opacity-100 transition-all duration-200 p-1 flex flex-col justify-center gap-1 z-10 border border-white/10 shadow-xl">
-                                <button 
-                                  onClick={() => handleSwapSquadSpot(player.id, 'bench')} 
-                                  className="w-full text-[9px] font-mono font-bold bg-[#1e293b] hover:bg-rose-950 text-slate-300 hover:text-white py-0.5 rounded transition"
-                                >
-                                  Bench ⬇️
-                                </button>
-                                <button 
-                                  onClick={() => handleSetCaptain(player.id)} 
-                                  className="w-full text-[9px] font-mono font-bold bg-amber-500 hover:bg-amber-600 text-black py-0.5 rounded transition"
-                                >
-                                  Captain
-                                </button>
-                                <button 
-                                  onClick={() => handleSetViceCaptain(player.id)} 
-                                  className="w-full text-[9px] font-mono font-bold bg-slate-600 hover:bg-slate-700 text-white py-0.5 rounded transition"
-                                >
-                                  Vice-C
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                          {(!myRoster || myRoster.active.filter(p => p.position === 'DEF').length === 0) && (
-                            <div className="border border-dashed border-white/10 rounded-2xl w-24 h-24 flex flex-col items-center justify-center p-2 text-center">
-                              <span className="text-[10px] text-slate-600 font-bold block">No Defender</span>
-                              <span className="text-[8px] text-slate-600">Starter Empty</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* position row GKP */}
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-mono text-slate-500 font-bold block text-center uppercase tracking-widest bg-[#020617]/50 max-w-[50px] mx-auto py-0.5 rounded border border-white/5">GKP</span>
-                        <div className="flex flex-wrap justify-center gap-6">
-                          {myRoster?.active.filter(p => p.position === 'GKP').map(player => (
-                            <div 
-                              key={player.id} 
-                              className="w-24 bg-[#111827]/90 rounded-2xl border border-emerald-500/20 shadow-lg p-2 text-center relative group hover:scale-105 transition-all duration-200"
-                            >
-                              <div className="absolute -top-1 -right-1 flex gap-1">
-                                {myRoster.team.captainId === player.id && (
-                                  <span className="w-5 h-5 bg-amber-500 text-black text-[10px] font-black rounded-full flex items-center justify-center font-mono shadow">C</span>
-                                )}
-                                {myRoster.team.viceCaptainId === player.id && (
-                                  <span className="w-5 h-5 bg-slate-500 text-white text-[10px] font-black rounded-full flex items-center justify-center font-mono shadow">V</span>
-                                )}
-                              </div>
-                              <div className="w-10 h-10 rounded-full mx-auto bg-gradient-to-br from-emerald-500/5 to-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-black text-xs flex items-center justify-center shadow-inner">
-                                {player.club}
-                              </div>
-                              <span className="block mt-1 text-[11px] font-bold text-white truncate px-0.5">{player.name.split(' ').pop()}</span>
-                              <span className="block text-[10px] font-mono text-brand-neon font-black">{player.points} pts</span>
-                              
-                              <div className="absolute inset-0 bg-[#070a13]/95 rounded-2xl opacity-0 group-hover:opacity-100 transition-all duration-200 p-1 flex flex-col justify-center gap-1 z-10 border border-white/10 shadow-xl">
-                                <button 
-                                  onClick={() => handleSwapSquadSpot(player.id, 'bench')} 
-                                  className="w-full text-[9px] font-mono font-bold bg-[#1e293b] hover:bg-rose-950 text-slate-300 hover:text-white py-0.5 rounded transition"
-                                >
-                                  Bench ⬇️
-                                </button>
-                                <button 
-                                  onClick={() => handleSetCaptain(player.id)} 
-                                  className="w-full text-[9px] font-mono font-bold bg-amber-500 hover:bg-amber-600 text-black py-0.5 rounded transition"
-                                >
-                                  Captain
-                                </button>
-                                <button 
-                                  onClick={() => handleSetViceCaptain(player.id)} 
-                                  className="w-full text-[9px] font-mono font-bold bg-slate-600 hover:bg-slate-700 text-white py-0.5 rounded transition"
-                                >
-                                  Vice-C
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                          {(!myRoster || myRoster.active.filter(p => p.position === 'GKP').length === 0) && (
-                            <div className="border border-dashed border-white/10 rounded-2xl w-24 h-24 flex flex-col items-center justify-center p-2 text-center">
-                              <span className="text-[10px] text-slate-600 font-bold block">No Goalie</span>
-                              <span className="text-[8px] text-slate-600">Starter Empty</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
+                  )}
 
                   {/* SCOUT AI LINEUP OPTIMIZER & CLUB SYNERGIES PANEL */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -5531,37 +5143,99 @@ export default function App() {
           {/* TAB 4: WAIVER WIRE SYSTEM */}
           {currentTab === 'waivers' && (
             <div className="space-y-6" id="waivers-panel">
+
+              <div className="flex flex-wrap gap-2 p-1 bg-black/40 rounded-xl border border-white/5 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setWaiverModule('priority')}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition ${
+                    waiverModule === 'priority'
+                      ? 'bg-brand-neon text-black'
+                      : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  Reverse Priority
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setWaiverModule('fwwb'); API.fetchFwwb(); }}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition flex items-center gap-1.5 ${
+                    waiverModule === 'fwwb'
+                      ? 'bg-amber-400 text-black'
+                      : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <DollarSign className="w-3.5 h-3.5" />
+                  FWWB Bids
+                </button>
+              </div>
               
               <div className="bg-[#111827]/80 p-5 rounded-xl border border-white/5 flex flex-col lg:flex-row justify-between items-center gap-6">
                 <div>
-                  <h2 className="text-xl lg:text-2xl font-display font-bold text-white">Reverse-Order Waiver Wire Hub</h2>
-                  <p className="text-xs text-slate-400">
-                    Acquire elite free agent talent that was not originally drafted. Conflicted requests are resolved based on the bottom-up priority list. Successful claim shifts priority to bottom.
-                  </p>
+                  {waiverModule === 'priority' ? (
+                    <>
+                      <h2 className="text-xl lg:text-2xl font-display font-bold text-white">Reverse-Order Waiver Wire Hub</h2>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Conflicted claims resolve by reverse standings priority. Successful claims move you to the bottom of the queue.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <h2 className="text-xl lg:text-2xl font-display font-bold text-white flex items-center gap-2">
+                        <Wallet className="w-6 h-6 text-amber-400" />
+                        FWWB — Free Waiver Wire Budget
+                      </h2>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Blind budget bids (${fwwbInfo.startingBudget} season pool). Highest bid wins each free agent; budget is deducted on award.
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-3">
+                        <span className="text-[11px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded-lg">
+                          Your remaining: <strong>${fwwbInfo.myRemaining}</strong> / ${fwwbInfo.startingBudget}
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-mono">Min bid ${fwwbInfo.minBid}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => {
-                      setSelectedAddPlayer(null);
-                      setSelectedDropPlayer(null);
-                      setIsWaiverModalOpen(true);
-                    }}
-                    className="bg-brand-neon hover:bg-emerald-400 text-black font-semibold text-sm px-4 py-2 rounded-xl transition flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4 text-black" />
-                    Propose Roster Waiver Claim
-                  </button>
-
-                  <button 
-                    onClick={handleProcessWaivers}
-                    className="bg-brand-purple hover:bg-purple-600 text-white font-semibold text-sm px-4 py-2 rounded-xl transition"
-                  >
-                    ⚡ Process All Claims
-                  </button>
+                <div className="flex gap-2 flex-wrap justify-end">
+                  {waiverModule === 'priority' ? (
+                    <>
+                      <button 
+                        onClick={openWaiverModal}
+                        className="bg-brand-neon hover:bg-emerald-400 text-black font-semibold text-sm px-4 py-2 rounded-xl transition flex items-center gap-2"
+                      >
+                        <Plus className="w-4 h-4 text-black" />
+                        Propose Claim
+                      </button>
+                      <button 
+                        onClick={handleProcessWaivers}
+                        className="bg-brand-purple hover:bg-purple-600 text-white font-semibold text-sm px-4 py-2 rounded-xl transition"
+                      >
+                        Process Priority Claims
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button 
+                        onClick={openFwwbModal}
+                        className="bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm px-4 py-2 rounded-xl transition flex items-center gap-2"
+                      >
+                        <DollarSign className="w-4 h-4" />
+                        Place FWWB Bid
+                      </button>
+                      <button 
+                        onClick={handleProcessFwwb}
+                        className="bg-brand-purple hover:bg-purple-600 text-white font-semibold text-sm px-4 py-2 rounded-xl transition"
+                      >
+                        Run FWWB Auction
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
+              {waiverModule === 'priority' && (
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                 
                 {/* ACTIVE PENDING CLAIMS */}
@@ -5656,6 +5330,136 @@ export default function App() {
                 </div>
 
               </div>
+              )}
+
+              {waiverModule === 'fwwb' && (
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                <div className="xl:col-span-2 space-y-4">
+                  <h3 className="font-display font-semibold text-base text-white">Your FWWB bids</h3>
+                  <div className="bg-black/35 rounded-xl border border-amber-500/20 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm border-collapse">
+                        <thead>
+                          <tr className="bg-[#111827]/80 text-xs text-slate-400 uppercase tracking-wider border-b border-white/5">
+                            <th className="py-3 px-4">Add (+)</th>
+                            <th className="py-3 px-4">Drop (−)</th>
+                            <th className="py-3 px-4">Bid</th>
+                            <th className="py-3 px-4">Status</th>
+                            <th className="py-3 px-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5 text-slate-300">
+                          {myFwwbBids.map((bid) => (
+                            <tr key={bid.id} className="hover:bg-white/5">
+                              <td className="py-3 px-4 font-semibold text-green-400 font-mono">+ {bid.playerToAddName}</td>
+                              <td className="py-3 px-4 font-semibold text-red-400 font-mono">− {bid.playerToDropName}</td>
+                              <td className="py-3 px-4">
+                                <span className="text-amber-300 font-bold font-mono">${bid.bidAmount}</span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className={`px-2 py-0.5 text-[11px] font-bold rounded ${
+                                  bid.status === 'Pending' ? 'bg-amber-500/10 text-amber-300' :
+                                  bid.status === 'Successful' ? 'bg-green-500/10 text-green-300' :
+                                  'bg-red-500/10 text-red-300'
+                                }`}>
+                                  {bid.status}
+                                </span>
+                                {bid.failureReason && (
+                                  <span className="block text-[10px] text-slate-500 mt-0.5">{bid.failureReason}</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                {bid.status === 'Pending' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteFwwbBid(bid.id)}
+                                    className="text-slate-500 hover:text-red-400 p-1 rounded transition"
+                                    title="Cancel bid"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                          {myFwwbBids.length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="py-12 text-center text-slate-500 text-xs">
+                                No FWWB bids yet. Place a blind bid on a free agent above.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <h3 className="font-display font-semibold text-sm text-slate-300 pt-2">League bid board (all managers)</h3>
+                  <div className="bg-black/25 rounded-xl border border-white/5 overflow-hidden">
+                    <div className="overflow-x-auto max-h-48">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="text-slate-500 uppercase border-b border-white/5">
+                            <th className="py-2 px-3">Manager</th>
+                            <th className="py-2 px-3">Target</th>
+                            <th className="py-2 px-3">Bid</th>
+                            <th className="py-2 px-3">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5 text-slate-400">
+                          {fwwbInfo.bids.map(bid => (
+                            <tr key={bid.id}>
+                              <td className="py-2 px-3 text-white">{bid.teamName}</td>
+                              <td className="py-2 px-3">{bid.playerToAddName}</td>
+                              <td className="py-2 px-3 font-mono text-amber-300">${bid.bidAmount}</td>
+                              <td className="py-2 px-3">{bid.status}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-display font-semibold text-base text-white">FWWB budgets</h3>
+                  <div className="bg-black/35 rounded-xl border border-amber-500/15 p-4 space-y-3">
+                    <span className="text-[11px] text-slate-400 block leading-relaxed">
+                      Each manager starts with ${fwwbInfo.startingBudget}. Winning bids deduct from remaining budget until the pool is spent.
+                    </span>
+                    <div className="space-y-2 pt-1">
+                      {fwwbInfo.budgets.map((b) => {
+                        const pct = Math.round((b.remaining / b.totalBudget) * 100);
+                        const isYou = b.teamName === (myRoster?.team?.name || 'Tejpal FC');
+                        return (
+                          <div
+                            key={b.teamId}
+                            className={`rounded-lg border px-3.5 py-2.5 ${
+                              isYou ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/5 bg-[#111827]'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center mb-1.5">
+                              <div>
+                                <div className="font-semibold text-xs text-white">{b.teamName}</div>
+                                <span className="text-[10px] text-slate-500">{b.managerName}</span>
+                              </div>
+                              <span className="font-mono text-xs text-amber-300 font-bold">${b.remaining}</span>
+                            </div>
+                            <div className="h-1.5 bg-black/50 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-amber-400/80 rounded-full transition-all"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="text-[9px] text-slate-600 mt-1 block">{pct}% remaining</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              )}
 
               {/* DFS PLAYER SPECIAL DETAILED MODAL POPUP (Disabled inline, now rendered globally) */}
               {false && selectedDfsPlayer && (() => {
@@ -6124,68 +5928,6 @@ export default function App() {
                 );
               })()}
 
-              {/* PROP WAIVER PROPOSAL MODAL POPUP */}
-              {isWaiverModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-                  <div className="bg-[#111827] border border-white/10 rounded-2xl w-full max-w-lg p-5 space-y-4">
-                    <h3 className="text-lg font-display font-bold text-white">Submit New Waiver Wire Transfer</h3>
-
-                    {/* SELECT STAR TO RELEASE */}
-                    <div className="space-y-2">
-                      <label className="text-xs text-slate-300 font-semibold block">1. Player to drop from your current team:</label>
-                      <select 
-                        className="w-full bg-[#030712] border border-white/10 rounded p-2 text-xs font-medium text-white"
-                        onChange={(e) => {
-                          const match = myRoster?.active.concat(myRoster.bench).find(p => p.id === e.target.value);
-                          setSelectedDropPlayer(match || null);
-                        }}
-                        defaultValue=""
-                      >
-                        <option value="" disabled>Select Roster Star...</option>
-                        {myRoster?.active.concat(myRoster.bench).map(p => (
-                          <option key={p.id} value={p.id}>{p.name} ({p.position} - {p.club})</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* SELECT STAR TO ACQUIRE */}
-                    <div className="space-y-2">
-                      <label className="text-xs text-slate-300 font-semibold block">2. Undrafted stars to claim (+ ADD):</label>
-                      <select 
-                        className="w-full bg-[#030712] border border-white/10 rounded p-2 text-xs font-medium text-white"
-                        onChange={(e) => {
-                          const match = allPlayersPool.find(p => p.id === e.target.value);
-                          setSelectedAddPlayer(match || null);
-                        }}
-                        defaultValue=""
-                      >
-                        <option value="" disabled>Select Star Agent...</option>
-                        {allPlayersPool
-                          .filter(p => !activeLeague?.teams.some(t => t.activePlayerIds.includes(p.id) || t.benchPlayerIds.includes(p.id)))
-                          .map(p => (
-                            <option key={p.id} value={p.id}>{p.name} ({p.position} - {p.club} - {p.points} pts)</option>
-                          ))}
-                      </select>
-                    </div>
-
-                    <div className="pt-4 border-t border-white/5 flex gap-2 justify-end">
-                      <button 
-                        onClick={() => setIsWaiverModalOpen(false)}
-                        className="bg-white/5 hover:bg-white/10 text-white text-xs font-semibold px-4 py-2 rounded-lg transition"
-                      >
-                        Cancel
-                      </button>
-                      <button 
-                        onClick={handleWaiverProposal}
-                        className="bg-brand-neon hover:bg-emerald-400 text-black text-xs font-bold px-4 py-2 rounded-lg transition"
-                      >
-                        Propose Claim
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* SCOUT INTEL DETAILED NEWS BRIEFING MODAL */}
               {selectedNewsId && (() => {
                 const article = REAL_WORLD_NEWS.find(a => a.id === selectedNewsId);
@@ -6432,6 +6174,17 @@ export default function App() {
                   <div className="space-y-4">
                     {matchupsList.filter(m => m.gameweek === activeGameweek).map((match) => (
                       <div key={match.id} className="bg-black/30 border border-white/5 rounded-xl overflow-hidden">
+
+                        {match.kickoffAt && (
+                          <div className="px-5 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 bg-brand-neon/5 border-b border-brand-neon/20 text-xs">
+                            <span className="font-semibold text-brand-neon">
+                              {formatMatchupKickoff(match.kickoffAt)}
+                            </span>
+                            {match.venue && (
+                              <span className="text-slate-400">{match.venue}</span>
+                            )}
+                          </div>
+                        )}
                         
                         {/* SCORE COMPARISON CONTAINER */}
                         <div className="p-5 flex flex-col md:flex-row items-center justify-between gap-6 bg-[#111827]/60 border-b border-white/5">
@@ -6494,7 +6247,9 @@ export default function App() {
 
                         {match.status === 'Upcoming' && (
                           <div className="p-4 text-center text-xs text-slate-400 bg-[#111827]/10 italic">
-                            Match upcoming. Complete draft phase and click "Simulate Active Gameweek Results" to play matches.
+                            {match.kickoffAt
+                              ? `Scheduled for ${formatMatchupKickoff(match.kickoffAt)}. Scores update after gameweek simulation.`
+                              : 'Match upcoming. Complete draft phase and click "Simulate Active Gameweek Results" to play matches.'}
                           </div>
                         )}
 
@@ -6506,124 +6261,6 @@ export default function App() {
                         No head-to-head fixtures programmed for Gameweek {activeGameweek} in this league.
                       </div>
                     )}
-                  </div>
-                </div>
-
-              </div>
-
-            </div>
-          )}
-
-          {/* TAB 7: ADMIN & SETTINGS SIMULATOR */}
-          {currentTab === 'admin' && (
-            <div className="space-y-6" id="admin-panel">
-              
-              <div className="bg-[#111827]/80 p-5 rounded-xl border border-white/5">
-                <h2 className="text-xl lg:text-2xl font-display font-bold text-white flex items-center gap-2">
-                  <Settings className="w-6 h-6 text-brand-purple" />
-                  Admin Simulation Deck
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Configure custom draft rules, inspect simulation logs, and easily reset system databases back to default exhibition standards.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                
-                {/* CREATE NEW CUSTOM LEAGUE FORM */}
-                <div className="bg-[#111827]/70 p-5 rounded-xl border border-white/5 space-y-4">
-                  <h3 className="font-display font-semibold text-base text-white flex items-center gap-2">
-                    <UserPlus className="w-5 h-5 text-brand-neon" />
-                    Configure New Draft League
-                  </h3>
-
-                  <form onSubmit={handleCreateLeague} className="space-y-3.5">
-                    
-                    <div className="space-y-1">
-                      <label className="text-xs text-slate-300 font-semibold block">League Roster Name</label>
-                      <input 
-                        type="text" 
-                        placeholder="Championship Class of 2026" 
-                        value={newLeagueName}
-                        onChange={(e) => setNewLeagueName(e.target.value)}
-                        className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-xs text-slate-300 font-semibold block">Max Competitors (4-16)</label>
-                        <input 
-                          type="number" 
-                          min={4} 
-                          max={16} 
-                          value={newLeagueSize}
-                          onChange={(e) => setNewLeagueSize(Number(e.target.value))}
-                          className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-xs text-slate-300 font-semibold block">Goal Score Points</label>
-                        <input 
-                          type="number" 
-                          value={customGoalPoints}
-                          onChange={(e) => setCustomGoalPoints(Number(e.target.value))}
-                          className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs text-slate-300 font-semibold block">Assist Score Points</label>
-                      <input 
-                        type="number" 
-                        value={customAssistPoints}
-                        onChange={(e) => setCustomAssistPoints(Number(e.target.value))}
-                        className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white"
-                      />
-                    </div>
-
-                    <button 
-                      type="submit" 
-                      className="w-full bg-brand-neon hover:bg-emerald-400 text-black font-display font-bold py-2 rounded-xl text-xs transition"
-                    >
-                      Provision Draft League & Invite Code 🚀
-                    </button>
-
-                  </form>
-                </div>
-
-                {/* LOGS MONITOR */}
-                <div className="space-y-4">
-                  <h3 className="font-display font-semibold text-base text-white">Simulation Output Logs</h3>
-
-                  <div className="bg-black/65 border border-white/5 rounded-xl p-4 h-[240px] overflow-y-auto font-mono text-[11px] text-brand-neon space-y-1">
-                    {adminSimulationLogs.map((log, idx) => (
-                      <div key={idx} className="leading-relaxed">
-                        &gt; {log}
-                      </div>
-                    ))}
-                    {adminSimulationLogs.length === 0 && (
-                      <div className="text-slate-500 italic">
-                        Logs empty. Run gameweek simulations or process waivers to trigger telemetry records.
-                      </div>
-                    )}
-                  </div>
-
-                  {/* RESET BUTTON */}
-                  <div className="bg-red-950/15 border border-red-500/20 p-4 rounded-xl flex items-center justify-between">
-                    <div>
-                      <span className="text-xs text-red-300 font-semibold block">Full Platform Hardware Reset</span>
-                      <p className="text-[10px] text-slate-400">Reverts draft picks, leagues, waivers, and custom statistics back to seeded exhibition defaults.</p>
-                    </div>
-
-                    <button 
-                      onClick={handleResetSimulator}
-                      className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2 rounded transition"
-                    >
-                      Wipe Cache DB
-                    </button>
                   </div>
                 </div>
 
@@ -6648,6 +6285,188 @@ export default function App() {
         dfsModalTab={dfsModalTab}
         setDfsModalTab={setDfsModalTab}
       />
+
+      {/* FWWB BID MODAL */}
+      {isFwwbModalOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#111827] border border-amber-500/30 rounded-2xl w-full max-w-lg p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="text-lg font-display font-bold text-white flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-amber-400" />
+                Submit FWWB blind bid
+              </h3>
+              <button type="button" onClick={() => setIsFwwbModalOpen(false)} className="p-1 rounded-lg hover:bg-white/10 text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Remaining budget: <span className="text-amber-300 font-mono font-bold">${fwwbInfo.myRemaining}</span>. Highest bid wins on auction run.
+            </p>
+            <div className="space-y-2">
+              <label className="text-xs text-slate-300 font-semibold block">1. Player to drop</label>
+              <select
+                className="w-full bg-[#030712] border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-amber-400 focus:outline-none"
+                value={selectedDropPlayer?.id ?? ''}
+                onChange={(e) => setSelectedDropPlayer(getWaiverDropPlayers().find(p => p.id === e.target.value) ?? null)}
+              >
+                <option value="" disabled>Select release...</option>
+                {getWaiverDropPlayers().map(p => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.position})</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-slate-300 font-semibold block">2. Free agent target</label>
+              <select
+                className="w-full bg-[#030712] border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-amber-400 focus:outline-none"
+                value={selectedAddPlayer?.id ?? ''}
+                onChange={(e) => setSelectedAddPlayer(getWaiverAddPlayers().find(p => p.id === e.target.value) ?? null)}
+              >
+                <option value="" disabled>Select target...</option>
+                {getWaiverAddPlayers().map(p => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.position}) — {p.points} pts</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-slate-300 font-semibold block">3. Bid amount ($)</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="range"
+                  min={fwwbInfo.minBid}
+                  max={Math.max(fwwbInfo.minBid, fwwbInfo.myRemaining)}
+                  value={Math.min(fwwbBidAmount, fwwbInfo.myRemaining)}
+                  onChange={(e) => setFwwbBidAmount(Number(e.target.value))}
+                  className="flex-1 accent-amber-400"
+                />
+                <input
+                  type="number"
+                  min={fwwbInfo.minBid}
+                  max={fwwbInfo.myRemaining}
+                  value={fwwbBidAmount}
+                  onChange={(e) => setFwwbBidAmount(Math.min(fwwbInfo.myRemaining, Math.max(fwwbInfo.minBid, Number(e.target.value) || fwwbInfo.minBid)))}
+                  className="w-20 bg-[#030712] border border-amber-500/30 rounded-lg px-2 py-1.5 text-sm font-mono text-amber-300 text-center focus:outline-none"
+                />
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {[5, 10, 15, 25, 40].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    disabled={preset > fwwbInfo.myRemaining}
+                    onClick={() => setFwwbBidAmount(preset)}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded border border-white/10 text-slate-400 hover:border-amber-500/40 hover:text-amber-300 disabled:opacity-30"
+                  >
+                    ${preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {selectedDropPlayer && selectedAddPlayer && (
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/25 px-3 py-2 text-xs text-amber-200 font-mono">
+                Bid ${fwwbBidAmount}: − {selectedDropPlayer.name} → + {selectedAddPlayer.name}
+              </div>
+            )}
+            <div className="pt-2 border-t border-white/5 flex gap-2 justify-end">
+              <button type="button" onClick={() => setIsFwwbModalOpen(false)} className="bg-white/5 hover:bg-white/10 text-white text-xs font-semibold px-4 py-2 rounded-lg">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleFwwbProposal}
+                disabled={!selectedDropPlayer || !selectedAddPlayer || fwwbBidAmount > fwwbInfo.myRemaining}
+                className="bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-black text-xs font-bold px-4 py-2 rounded-lg"
+              >
+                Submit bid
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WAIVER PROPOSAL MODAL (global — works on Waiver Wire tab) */}
+      {isWaiverModalOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#111827] border border-brand-purple/30 rounded-2xl w-full max-w-lg p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="text-lg font-display font-bold text-white">Submit New Waiver Wire Transfer</h3>
+              <button
+                type="button"
+                onClick={() => setIsWaiverModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-400">
+              Drop a roster player and claim an available free agent. Claims resolve by reverse standings priority.
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-xs text-slate-300 font-semibold block">1. Player to drop (−)</label>
+              <select
+                className="w-full bg-[#030712] border border-white/10 rounded-lg p-2.5 text-sm font-medium text-white focus:border-brand-neon focus:outline-none"
+                value={selectedDropPlayer?.id ?? ''}
+                onChange={(e) => {
+                  const match = getWaiverDropPlayers().find(p => p.id === e.target.value);
+                  setSelectedDropPlayer(match ?? null);
+                }}
+              >
+                <option value="" disabled>Select player to release...</option>
+                {getWaiverDropPlayers().map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.position} · {p.club}) — {p.points} pts
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-slate-300 font-semibold block">2. Free agent to add (+)</label>
+              <select
+                className="w-full bg-[#030712] border border-white/10 rounded-lg p-2.5 text-sm font-medium text-white focus:border-brand-neon focus:outline-none"
+                value={selectedAddPlayer?.id ?? ''}
+                onChange={(e) => {
+                  const match = getWaiverAddPlayers().find(p => p.id === e.target.value);
+                  setSelectedAddPlayer(match ?? null);
+                }}
+              >
+                <option value="" disabled>Select free agent...</option>
+                {getWaiverAddPlayers().map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.position} · {p.club}) — {p.points} pts
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedDropPlayer && selectedAddPlayer && (
+              <div className="rounded-lg bg-brand-neon/10 border border-brand-neon/25 px-3 py-2 text-xs text-brand-neon font-mono">
+                − {selectedDropPlayer.name} → + {selectedAddPlayer.name}
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-white/5 flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setIsWaiverModalOpen(false)}
+                className="bg-white/5 hover:bg-white/10 text-white text-xs font-semibold px-4 py-2 rounded-lg transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleWaiverProposal}
+                disabled={!selectedDropPlayer || !selectedAddPlayer}
+                className="bg-brand-neon hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-black text-xs font-bold px-4 py-2 rounded-lg transition"
+              >
+                Propose Claim
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* COMPACT FOOTER FOOTNOTE */}
       <footer className="py-8 border-t border-white/5 text-center text-xs text-slate-500">
